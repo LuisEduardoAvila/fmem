@@ -44,8 +44,8 @@ Once the skill is installed in your workspace, you can call it directly using th
 
 | Service | Required? | Endpoint | Purpose |
 |---------|----------|----------|---------|
-| Ollama | ✅ Yes | `http://127.0.0.1:4000` | Runs nomic-embed-text model locally |
-| litellm | ✅ Yes | `http://127.0.0.1:4000/v1` | API gateway to Ollama for embeddings |
+| Ollama | ✅ Yes | `http://127.0.0.1:11434` | Runs nomic-embed-text model locally |
+| litellm | ✅ Yes | `http://127.0.0.1:11434/v1` | API gateway to Ollama for embeddings |
 
 **Note:** No OpenAI, Pinecone, or cloud services required — fully offline.
 
@@ -75,7 +75,7 @@ ollama pull nomic-embed-text
 
 **Test litellm endpoint:**
 ```bash
-curl http://127.0.0.1:4000/v1/models
+curl http://127.0.0.1:11434/v1/models
 ```
 
 Should list `nomic-embed-text` and `voytas26/openclaw-qwen3vl-8b-opt`.
@@ -146,7 +146,7 @@ pip install faiss-cpu
 **Solution:**
 ```bash
 ollama pull nomic-embed-text
-curl http://127.0.0.1:4000/v1/models
+curl http://127.0.0.1:11434/v1/models
 ```
 
 ### FAISS Index Not Persisting
