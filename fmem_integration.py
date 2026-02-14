@@ -14,6 +14,8 @@ Usage in agent:
 import re
 import os
 import sys
+import time
+from typing import Set, Dict
 
 # Add DarthSpud to path
 workspace = os.environ.get('FMEM_WORKSPACE', '/home/luis/.openclaw/workspace')
@@ -25,6 +27,13 @@ from fmem import MemoryRetrieval
 
 # Singleton memory instance
 _memory = None
+
+# Session-level deduplication
+_session_recalled: Dict[str, float] = {}  # filepath -> timestamp
+_dedupe_ttl_seconds = 300  # 5 minutes before allowing re-recall
+
+# Relevance threshold - filter out low-quality results
+MIN_RELEVANCE_SCORE = 0.25
 
 def get_memory():
     """Get or create memory instance."""
@@ -147,32 +156,60 @@ def auto_recall(message: str, top_k: int = 3) -> list:
         # Temporarily boost recency weight
         original_recency = memory.config.recency_weight
         memory.config.recency_weight = min(0.5, original_recency + 0.2)
-        results = memory.search(query, top_k=top_k)
+        results = memory.search(query, top_k=top_k + 2)  # Fetch extra for filtering
         memory.config.recency_weight = original_recency
     elif bias == 'location':
         # Temporarily boost location weight
         original_location = memory.config.location_weight
         memory.config.location_weight = min(0.4, original_location + 0.1)
-        results = memory.search(query, top_k=top_k)
+        results = memory.search(query, top_k=top_k + 2)
         memory.config.location_weight = original_location
     else:
-        results = memory.search(query, top_k=top_k)
+        results = memory.search(query, top_k=top_k + 2)
     
-    return results
+    # Filter by relevance threshold
+    results = [r for r in results if r.get('score', 0) >= MIN_RELEVANCE_SCORE]
+    
+    # Deduplicate: remove recently recalled files
+    now = time.time()
+    filtered = []
+    for r in results:
+        filepath = r.get('filepath', '')
+        last_recalled = _session_recalled.get(filepath, 0)
+        
+        # Include if not recently recalled (TTL expired or never recalled)
+        if now - last_recalled > _dedupe_ttl_seconds:
+            filtered.append(r)
+            _session_recalled[filepath] = now
+    
+    return filtered[:top_k]
 
 def format_results(results: list, max_preview: int = 200) -> str:
     """
     Format search results for context injection with clear memory tags.
+    Uses adaptive preview length based on result count.
     
     Args:
         results: List of search results
-        max_preview: Maximum preview length
+        max_preview: Maximum preview length (adjusted adaptively)
         
     Returns:
         Formatted string for context
     """
     if not results:
         return ""
+    
+    # Adaptive preview: more space for single result, less for many
+    result_count = len(results)
+    if result_count == 1:
+        adaptive_preview = 400  # Deep dive into single result
+    elif result_count == 2:
+        adaptive_preview = 250  # Balanced
+    else:
+        adaptive_preview = 150  # Quick overview
+    
+    # Use smaller of provided max or adaptive
+    actual_preview = min(max_preview, adaptive_preview)
     
     output = ["\n<retrieved_memory>"]
     output.append("📝 The following is retrieved from your long-term memory (previous interactions, notes, and preferences).")
@@ -183,9 +220,9 @@ def format_results(results: list, max_preview: int = 200) -> str:
         filename = os.path.basename(filepath)
         dirname = os.path.basename(os.path.dirname(filepath)) if '/' in filepath else ''
         
-        # Get preview
+        # Get preview with adaptive length
         content = r.get('content', '')
-        preview = content[:max_preview] + "..." if len(content) > max_preview else content
+        preview = content[:actual_preview] + "..." if len(content) > actual_preview else content
         
         # Format scores if available
         scores = ""
@@ -219,6 +256,23 @@ def get_context_for_message(message: str, top_k: int = 3) -> str:
     
     results = auto_recall(message, top_k)
     return format_results(results)
+
+
+def clear_dedupe_cache():
+    """Clear the session deduplication cache."""
+    global _session_recalled
+    _session_recalled = {}
+
+
+def get_dedupe_stats() -> dict:
+    """Get deduplication statistics."""
+    now = time.time()
+    active = sum(1 for ts in _session_recalled.values() if now - ts < _dedupe_ttl_seconds)
+    return {
+        "total_recalled": len(_session_recalled),
+        "active_in_ttl": active,
+        "ttl_seconds": _dedupe_ttl_seconds
+    }
 
 
 # CLI for testing
