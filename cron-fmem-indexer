@@ -1,0 +1,26 @@
+# fmem Automatic Indexer - Cron Configuration
+#
+# This cron job automatically indexes OpenClaw memory files every 30 minutes
+# to keep the semantic search index up to date.
+#
+# Installation:
+#   crontab -e
+#   Paste the line below:
+#   */30 * * * * cd /home/luis/.openclaw/workspace && /usr/bin/python3 DarthSpud/indexer.py >> /home/luis/.openclaw/logs/fmem-index.log 2>&1
+#
+# To edit your crontab:
+#   crontab -e
+#
+# To list current crontab:
+#   crontab -l
+#
+# To remove fmem cron job:
+#   crontab -e
+#   Delete the fmem indexer line
+
+# =============================================================================
+# Automatic Memory Indexer
+# =============================================================================
+# Runs every 30 minutes to index new/modified memory files
+# =============================================================================
+*/30 * * * * cd /home/luis/.openclaw/workspace && /usr/bin/python3 DarthSpud/indexer.py >> /home/luis/.openclaw/logs/fmem-index.log 2>&1
