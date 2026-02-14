@@ -87,21 +87,22 @@ def get_file_location_weight(filepath: str) -> float:
 def scan_memory_files_with_locations() -> List[Tuple[str, float]]:
     """
     Scan memory directory for files to index with location weights.
+    Uses relative paths since we chdir to workspace.
     
     Returns:
         List of (filepath, location_weight) tuples
     """
     files_with_weights = []
     
-    # Always index MEMORY.md with high weight
-    if os.path.exists(MEMORY_MD_PATH):
-        location_weight = get_file_location_weight(MEMORY_MD_PATH)
-        files_with_weights.append((MEMORY_MD_PATH, location_weight))
+    # Always index MEMORY.md with high weight (relative path)
+    if os.path.exists('MEMORY.md'):
+        location_weight = get_file_location_weight('MEMORY.md')
+        files_with_weights.append(('MEMORY.md', location_weight))
         print(f"  MEMORY.md (location weight: {location_weight:.1f})")
     
     # Index daily memory files with location weights
-    if os.path.exists(MEMORY_DIR):
-        for filepath in glob.glob(os.path.join(MEMORY_DIR, '*.md')):
+    if os.path.exists('memory'):
+        for filepath in glob.glob('memory/*.md'):
             # Skip index metadata and temporary files
             filename = os.path.basename(filepath)
             if not any(skip in filename for skip in ['daily-index', '.last_indexed']):
@@ -110,15 +111,15 @@ def scan_memory_files_with_locations() -> List[Tuple[str, float]]:
                 print(f"  {os.path.basename(filepath)} (location weight: {location_weight:.1f})")
     
     # Index notes directory (if exists)
-    if os.path.exists(NOTES_DIR):
-        for filepath in glob.glob(os.path.join(NOTES_DIR, '*.md')):
+    if os.path.exists('notes'):
+        for filepath in glob.glob('notes/*.md'):
             location_weight = get_file_location_weight(filepath)
             files_with_weights.append((filepath, location_weight))
             print(f"  notes/{os.path.basename(filepath)} (location weight: {location_weight:.1f})")
     
     # Index PERSONAS directory (if exists)
-    if os.path.exists(PERSONAS_DIR):
-        for filepath in glob.glob(os.path.join(PERSONAS_DIR, '*.md')):
+    if os.path.exists('PERSONAS'):
+        for filepath in glob.glob('PERSONAS/*.md'):
             location_weight = get_file_location_weight(filepath)
             files_with_weights.append((filepath, location_weight))
             print(f"  PERSONAS/{os.path.basename(filepath)} (location weight: {location_weight:.1f})")
@@ -183,6 +184,10 @@ def main():
     """Main indexer function."""
     start_time = time.time()
     print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Starting enhanced memory indexer with location ranking...")
+    
+    # Change to workspace directory for relative path handling
+    workspace = os.environ.get('FMEM_WORKSPACE', '/home/luis/.openclaw/workspace')
+    os.chdir(workspace)
     
     # Initialize memory system
     try:
