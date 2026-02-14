@@ -128,13 +128,14 @@ def get_search_bias(message: str) -> str:
     
     return 'semantic'
 
-def auto_recall(message: str, top_k: int = 3) -> list:
+def auto_recall(message: str, top_k: int = 3, chunk_mode: str = "chunk") -> list:
     """
     Perform automatic memory recall based on message.
     
     Args:
         message: User message to analyze
         top_k: Number of results to return
+        chunk_mode: How to return results ("chunk", "document", or "hybrid")
         
     Returns:
         List of search results with enhanced scoring
@@ -156,16 +157,16 @@ def auto_recall(message: str, top_k: int = 3) -> list:
         # Temporarily boost recency weight
         original_recency = memory.config.recency_weight
         memory.config.recency_weight = min(0.5, original_recency + 0.2)
-        results = memory.search(query, top_k=top_k + 2)  # Fetch extra for filtering
+        results = memory.search(query, top_k=top_k + 2, chunk_mode=chunk_mode)
         memory.config.recency_weight = original_recency
     elif bias == 'location':
         # Temporarily boost location weight
         original_location = memory.config.location_weight
         memory.config.location_weight = min(0.4, original_location + 0.1)
-        results = memory.search(query, top_k=top_k + 2)
+        results = memory.search(query, top_k=top_k + 2, chunk_mode=chunk_mode)
         memory.config.location_weight = original_location
     else:
-        results = memory.search(query, top_k=top_k + 2)
+        results = memory.search(query, top_k=top_k + 2, chunk_mode=chunk_mode)
     
     # Filter by relevance threshold
     results = [r for r in results if r.get('score', 0) >= MIN_RELEVANCE_SCORE]
@@ -184,7 +185,7 @@ def auto_recall(message: str, top_k: int = 3) -> list:
     
     return filtered[:top_k]
 
-def format_results(results: list, max_preview: int = 200) -> str:
+def format_results(results: list, max_preview: int = 200, chunk_mode: str = "chunk") -> str:
     """
     Format search results for context injection with clear memory tags.
     Uses adaptive preview length based on result count.
@@ -192,6 +193,10 @@ def format_results(results: list, max_preview: int = 200) -> str:
     Args:
         results: List of search results
         max_preview: Maximum preview length (adjusted adaptively)
+        chunk_mode: How to format results:
+                   - "chunk": Format individual chunks
+                   - "document": Format full documents
+                   - "hybrid": Combine chunks with parent documents
         
     Returns:
         Formatted string for context
@@ -211,42 +216,142 @@ def format_results(results: list, max_preview: int = 200) -> str:
     # Use smaller of provided max or adaptive
     actual_preview = min(max_preview, adaptive_preview)
     
+    # Group results by parent file
+    parent_docs = {}  # filepath -> {document, chunks: []}
+    chunk_results = []
+    
+    for r in results:
+        filepath = r['filepath']
+        chunk_info = r.get('chunk_info')
+        
+        if chunk_info:
+            # This is a chunk result
+            if filepath not in parent_docs:
+                parent_docs[filepath] = {'document': None, 'chunks': []}
+            parent_docs[filepath]['chunks'].append(r)
+        else:
+            # This is a document result
+            if filepath not in parent_docs:
+                parent_docs[filepath] = {'document': r, 'chunks': []}
+            else:
+                parent_docs[filepath]['document'] = r
+    
     output = ["\n<retrieved_memory>"]
     output.append("📝 The following is retrieved from your long-term memory (previous interactions, notes, and preferences).")
     output.append("This context helps inform the current conversation but may not reflect recent updates.\n")
     
-    for i, r in enumerate(results[:3], 1):
-        filepath = r['filepath']
+    item_index = 1
+    
+    for filepath, data in parent_docs.items():
         filename = os.path.basename(filepath)
         dirname = os.path.basename(os.path.dirname(filepath)) if '/' in filepath else ''
         
-        # Get preview with adaptive length
-        content = r.get('content', '')
-        preview = content[:actual_preview] + "..." if len(content) > actual_preview else content
-        
         # Format scores if available
         scores = ""
-        if 'semantic_score' in r:
-            scores = f" | relevance={r['semantic_score']:.2f}"
-            if 'recency_score' in r:
-                scores += f", recency={r['recency_score']:.2f}"
+        if 'semantic_score' in data['document'] if data['document'] else r:
+            score_source = data['document'] if data['document'] else r
+            scores = f" | relevance={score_source['semantic_score']:.2f}"
+            if 'recency_score' in score_source:
+                scores += f", recency={score_source['recency_score']:.2f}"
         
         location_label = f"[{dirname}/]" if dirname else ""
-        output.append(f"<memory_item index=\"{i}\" source=\"{location_label}{filename}\"{scores}>")
-        output.append(preview.strip())
-        output.append(f"</memory_item>")
+        
+        if chunk_mode == "chunk":
+            # Format individual chunks
+            chunks = data.get('chunks', [])
+            for chunk in chunks:
+                content = chunk.get('content', '')
+                preview = content[:actual_preview] + "..." if len(content) > actual_preview else content
+                
+                # Get chunk metadata
+                chunk_info = chunk.get('chunk_info', {})
+                heading = chunk_info.get('heading', 'Section')
+                keywords = chunk_info.get('keywords', [])
+                category = chunk_info.get('category', 'general')
+                
+                # Build keywords string
+                keywords_str = ', '.join(keywords) if keywords else ''
+                
+                output.append(f"<memory_chunk index=\"{item_index}\" source=\"{location_label}{filename}#{slugify(heading)}\" category=\"{category}\">")
+                output.append(f"<heading>{heading}</heading>")
+                output.append(f"<content>{preview.strip()}</content>")
+                if keywords_str:
+                    output.append(f"<keywords>{keywords_str}</keywords>")
+                output.append(f"</memory_chunk>")
+                item_index += 1
+                
+                # Limit to top 3 chunks total for context
+                if item_index > 4:
+                    break
+        elif chunk_mode == "document" or chunk_mode == "hybrid":
+            # Format full document
+            doc = data.get('document')
+            if doc:
+                content = doc.get('content', '')
+                preview = content[:actual_preview] + "..." if len(content) > actual_preview else content
+                
+                output.append(f"<memory_item index=\"{item_index}\" source=\"{location_label}{filename}\"{scores}>")
+                output.append(preview.strip())
+                output.append(f"</memory_item>")
+                item_index += 1
+        else:
+            # Default: format as chunks
+            chunks = data.get('chunks', [])
+            for chunk in chunks:
+                content = chunk.get('content', '')
+                preview = content[:actual_preview] + "..." if len(content) > actual_preview else content
+                
+                chunk_info = chunk.get('chunk_info', {})
+                heading = chunk_info.get('heading', 'Section')
+                keywords = chunk_info.get('keywords', [])
+                category = chunk_info.get('category', 'general')
+                
+                keywords_str = ', '.join(keywords) if keywords else ''
+                
+                output.append(f"<memory_chunk index=\"{item_index}\" source=\"{location_label}{filename}#{slugify(heading)}\" category=\"{category}\">")
+                output.append(f"<heading>{heading}</heading>")
+                output.append(f"<content>{preview.strip()}</content>")
+                if keywords_str:
+                    output.append(f"<keywords>{keywords_str}</keywords>")
+                output.append(f"</memory_chunk>")
+                item_index += 1
+                
+                if item_index > 4:
+                    break
+        
+        # Limit total items
+        if item_index > 4:
+            break
     
     output.append("</retrieved_memory>")
     
     return "\n".join(output)
 
-def get_context_for_message(message: str, top_k: int = 3) -> str:
+
+def slugify(text: str) -> str:
+    """
+    Convert text to URL-friendly slug.
+    
+    Args:
+        text: Input text
+        
+    Returns:
+        Slug string (lowercase, hyphen-separated)
+    """
+    import re
+    text = re.sub(r'[^a-zA-Z0-9\s-]', '', text.lower())
+    text = re.sub(r'[\s]+', '-', text.strip())
+    text = re.sub(r'-+', '-', text)
+    return text if text else 'section'
+
+def get_context_for_message(message: str, top_k: int = 3, chunk_mode: str = "chunk") -> str:
     """
     Main entry point: Get formatted context for a message.
     
     Args:
         message: User message to process
         top_k: Number of results
+        chunk_mode: How to return results ("chunk", "document", or "hybrid")
         
     Returns:
         Formatted context string (empty if no relevant memories)
@@ -254,8 +359,8 @@ def get_context_for_message(message: str, top_k: int = 3) -> str:
     if not should_search(message):
         return ""
     
-    results = auto_recall(message, top_k)
-    return format_results(results)
+    results = auto_recall(message, top_k, chunk_mode)
+    return format_results(results, chunk_mode=chunk_mode)
 
 
 def clear_dedupe_cache():

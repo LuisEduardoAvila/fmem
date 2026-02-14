@@ -21,7 +21,295 @@ Usage:
         print(f"[{r['score']:.3f}] {r['filepath']}")
 """
 
-__version__ = "2.1.0"
+__version__ = "3.0.0"
+
+# ============================================================================
+# Chunk Metadata Schema
+# ============================================================================
+
+class ChunkMetadata:
+    """Represents a chunk with metadata for enhanced retrieval."""
+    
+    def __init__(self, id: str, parent_file: str, heading: str, 
+                 content: str, summary: str = None, keywords: List[str] = None,
+                 category: str = None, tokens: int = 0, chunk_index: int = 0):
+        """
+        Initialize chunk metadata.
+        
+        Args:
+            id: Unique chunk identifier (e.g., "MEMORY.md#session-2026-02-13")
+            parent_file: Path to original file
+            heading: The ## heading text that defines this chunk
+            content: Section content
+            summary: Chunk summary (generated in Phase 2)
+            keywords: Extracted keywords from content
+            category: Inferred category from heading
+            tokens: Approximate token count
+            chunk_index: Position index within parent file
+        """
+        self.id = id
+        self.parent_file = parent_file
+        self.heading = heading
+        self.content = content
+        self.summary = summary
+        self.keywords = keywords or []
+        self.category = category
+        self.tokens = tokens
+        self.chunk_index = chunk_index
+    
+    def to_dict(self) -> Dict:
+        """Return dict representation."""
+        return {
+            'id': self.id,
+            'parent_file': self.parent_file,
+            'heading': self.heading,
+            'content': self.content,
+            'summary': self.summary,
+            'keywords': self.keywords,
+            'category': self.category,
+            'tokens': self.tokens,
+            'chunk_index': self.chunk_index
+        }
+    
+    @classmethod
+    def from_dict(cls, data: Dict) -> 'ChunkMetadata':
+        """Create ChunkMetadata from dict."""
+        return cls(
+            id=data.get('id', ''),
+            parent_file=data.get('parent_file', ''),
+            heading=data.get('heading', ''),
+            content=data.get('content', ''),
+            summary=data.get('summary'),
+            keywords=data.get('keywords', []),
+            category=data.get('category'),
+            tokens=data.get('tokens', 0),
+            chunk_index=data.get('chunk_index', 0)
+        )
+
+
+# ============================================================================
+# Chunking Functions
+# ============================================================================
+
+def slugify(text: str) -> str:
+    """
+    Convert text to URL-friendly slug.
+    
+    Args:
+        text: Input text
+        
+    Returns:
+        Slug string (lowercase, hyphen-separated)
+    """
+    # Remove special characters and convert to lowercase
+    text = re.sub(r'[^a-zA-Z0-9\s-]', '', text.lower())
+    # Replace spaces with hyphens
+    text = re.sub(r'[\s]+', '-', text.strip())
+    # Remove consecutive hyphens
+    text = re.sub(r'-+', '-', text)
+    return text if text else 'section'
+
+
+def extract_keywords(content: str, max_keywords: int = 5) -> List[str]:
+    """
+    Extract keywords from content (simple regex-based).
+    
+    Args:
+        content: Text content
+        max_keywords: Maximum number of keywords to extract
+        
+    Returns:
+        List of keywords (4+ chars, most frequent)
+    """
+    # Extract words (4+ characters, alphanumeric only)
+    words = re.findall(r'\b[a-zA-Z]{4,}\b', content.lower())
+    
+    # Count frequency
+    freq = {}
+    for word in words:
+        freq[word] = freq.get(word, 0) + 1
+    
+    # Sort by frequency and return top keywords
+    sorted_words = sorted(freq.items(), key=lambda x: x[1], reverse=True)
+    return [word for word, count in sorted_words[:max_keywords]]
+
+
+def infer_category(heading: str) -> str:
+    """
+    Infer category from heading text.
+    
+    Args:
+        heading: The ## heading text
+        
+    Returns:
+        Inferred category string
+    """
+    heading_lower = heading.lower()
+    
+    # Category keywords
+    category_keywords = {
+        'session_log': ['session', 'interaction', 'chat', 'conversation', 'todo', 'today'],
+        'documentation': ['documentation', 'readme', 'guide', 'manual', 'docs'],
+        'project': ['project', 'task', 'plan', 'feature', 'milestone'],
+        'note': ['note', 'remind', 'todo', 'idea', 'brainstorm'],
+        'technical': ['technical', 'implementation', 'code', 'api', 'system'],
+        'personal': ['personal', 'reflection', 'journal', 'thought'],
+        'meeting': ['meeting', 'discuss', 'decision', 'agree', 'plan'],
+        'review': ['review', 'status', 'update', 'report'],
+    }
+    
+    # Find best matching category
+    best_category = 'general'
+    best_score = 0
+    
+    for category, keywords in category_keywords.items():
+        score = sum(1 for kw in keywords if kw in heading_lower)
+        if score > best_score:
+            best_score = score
+            best_category = category
+    
+    return best_category
+
+
+def chunk_markdown(content: str, filepath: str, min_chunk_size: int = 50) -> List[ChunkMetadata]:
+    """
+    Split markdown by ## headings.
+    Each section becomes a chunk with:
+    - id: "{filename}#{heading-slug}"
+    - parent_file: original filepath
+    - heading: the ## heading text
+    - content: section content
+    - summary: NOT generated yet (Phase 2)
+    - keywords: extracted from content (simple regex)
+    - category: inferred from heading
+    - tokens: approximate count
+    
+    Args:
+        content: Full markdown content
+        filepath: Original file path
+        min_chunk_size: Minimum chunk size in chars (merge smaller sections)
+        
+    Returns:
+        List of ChunkMetadata objects
+    """
+    if not content or not filepath:
+        return []
+    
+    filename = os.path.basename(filepath)
+    chunks = []
+    current_heading = "Top-Level Content"
+    current_content = ""
+    heading_pattern = re.compile(r'^(#{2,})\s+(.+)$', re.MULTILINE)
+    
+    # Split content by ## headings
+    parts = []
+    last_end = 0
+    
+    for match in heading_pattern.finditer(content):
+        # Add content before this heading
+        if match.start() > last_end:
+            section_content = content[last_end:match.start()].strip()
+            if section_content:
+                parts.append((current_heading, section_content))
+        
+        # Update current heading
+        current_heading = match.group(2).strip()
+        last_end = match.end()
+    
+    # Add remaining content after last heading
+    if last_end < len(content):
+        section_content = content[last_end:].strip()
+        if section_content:
+            parts.append((current_heading, section_content))
+    
+    # If no headings found, treat entire content as one chunk
+    if not parts:
+        # Remove file header/if present
+        content_clean = content.strip()
+        if content_clean:
+            chunks.append(_create_chunk(
+                filename=filename,
+                heading="Document",
+                content=content_clean,
+                parent_file=filepath,
+                chunk_index=0
+            ))
+        return chunks
+    
+    # Merge small chunks (under min_chunk_size)
+    merged_parts = []
+    buffer_heading = ""
+    buffer_content = ""
+    
+    for heading, section_content in parts:
+        # Merge if buffer has content and new section is small
+        if buffer_content and len(buffer_content) + len(section_content) < min_chunk_size:
+            buffer_content += "\n\n" + section_content
+        else:
+            # Save current buffer if exists
+            if buffer_content:
+                merged_parts.append((buffer_heading, buffer_content))
+            # Start new buffer
+            buffer_heading = heading
+            buffer_content = section_content
+    
+    # Don't forget the last buffer
+    if buffer_content:
+        merged_parts.append((buffer_heading, buffer_content))
+    
+    # Create chunks from merged parts
+    for i, (heading, section_content) in enumerate(merged_parts):
+        chunk = _create_chunk(
+            filename=filename,
+            heading=heading,
+            content=section_content,
+            parent_file=filepath,
+            chunk_index=i
+        )
+        chunks.append(chunk)
+    
+    return chunks
+
+
+def _create_chunk(filename: str, heading: str, content: str, 
+                  parent_file: str, chunk_index: int) -> ChunkMetadata:
+    """
+    Create a ChunkMetadata object with all fields populated.
+    
+    Args:
+        filename: Base filename
+        heading: Section heading text
+        content: Section content
+        parent_file: Full path to parent file
+        chunk_index: Position index
+        
+    Returns:
+        ChunkMetadata object
+    """
+    # Generate chunk ID
+    slug = slugify(heading)
+    chunk_id = f"{filename}#{slug}" if slug else f"{filename}#section-{chunk_index}"
+    
+    # Calculate approximate token count (4 chars ≈ 1 token)
+    tokens = max(1, len(content) // 4)
+    
+    # Extract keywords
+    keywords = extract_keywords(content)
+    
+    # Infer category
+    category = infer_category(heading)
+    
+    return ChunkMetadata(
+        id=chunk_id,
+        parent_file=parent_file,
+        heading=heading,
+        content=content,
+        keywords=keywords,
+        category=category,
+        tokens=tokens,
+        chunk_index=chunk_index
+    )
+
 
 import faiss
 import numpy as np
@@ -32,6 +320,7 @@ import sys
 import logging
 import datetime
 import hashlib
+import re
 from pathlib import Path
 from typing import List, Dict, Optional, Tuple, Set
 from contextlib import contextmanager
@@ -328,8 +617,10 @@ def sanitize_path(filepath: str, base_dir: Optional[str] = None, config: ConfigM
         # Get base directory
         if base_dir is None:
             # For absolute paths, use the parent of data_dir as base
+            # Expand ~ before getting parent
             if Path(filepath).is_absolute():
-                base_dir = Path(config.data_dir).parent
+                expanded_data_dir = os.path.expanduser(config.data_dir)
+                base_dir = Path(expanded_data_dir).parent
             else:
                 # For relative paths, use current working directory
                 base_dir = Path.cwd()
@@ -552,6 +843,19 @@ class MemoryRetrieval:
                 embedding BLOB,
                 PRIMARY KEY (doc_id),
                 FOREIGN KEY (doc_id) REFERENCES documents(id)
+            )
+        """)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS chunks (
+                chunk_id TEXT PRIMARY KEY,
+                parent_file TEXT,
+                heading TEXT,
+                content TEXT,
+                keywords TEXT,
+                category TEXT,
+                token_count INTEGER,
+                chunk_index INTEGER,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
         self.conn.commit()
@@ -836,6 +1140,48 @@ class MemoryRetrieval:
             logger.error(f"Failed to store in database: {e}")
             return None
     
+    def _store_chunk_metadata(self, chunk: ChunkMetadata) -> bool:
+        """
+        Store chunk metadata in SQLite database.
+        
+        Args:
+            chunk: ChunkMetadata object
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        if not self.conn:
+            return False
+        
+        try:
+            cursor = self.conn.cursor()
+            
+            # Convert keywords list to comma-separated string
+            keywords_str = ','.join(chunk.keywords) if chunk.keywords else ''
+            
+            cursor.execute("""
+                INSERT OR REPLACE INTO chunks 
+                (chunk_id, parent_file, heading, content, keywords, category, token_count, chunk_index)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                chunk.id,
+                chunk.parent_file,
+                chunk.heading,
+                chunk.content,
+                keywords_str,
+                chunk.category,
+                chunk.tokens,
+                chunk.chunk_index
+            ))
+            
+            self.conn.commit()
+            logger.debug(f"✓ Stored chunk: {chunk.id}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Failed to store chunk metadata: {e}")
+            return False
+    
     def _generate_embeddings_batch(self, texts: List[str]) -> Optional[np.ndarray]:
         """
         Generate embeddings for multiple texts with batching.
@@ -866,13 +1212,16 @@ class MemoryRetrieval:
             return np.vstack(all_embeddings)
         return None
     
-    def add_document(self, filepath: str, content: Optional[str] = None) -> bool:
+    def add_document(self, filepath: str, content: Optional[str] = None, 
+                     chunk_by_sections: bool = True) -> bool:
         """
         Add a document to memory system with validation.
         
         Args:
             filepath: Path to file (for metadata)
             content: Full document content. If None, reads from file.
+            chunk_by_sections: If True, split markdown by ## headings and index each as separate chunk.
+                             If False, index as single document (backward compatible).
             
         Returns:
             True if successful, False otherwise
@@ -928,42 +1277,92 @@ class MemoryRetrieval:
                 logger.error("Content too large")
                 return False
             
-            # Generate embedding
-            embedding = self._get_embedding(content[:1000])  # Use first 1000 chars for quick embedding
+            # Generate embedding for main document
+            main_embedding = self._get_embedding(content[:1000])  # Use first 1000 chars
             
-            # Store metadata
-            metadata = {
-                'filepath': filepath,
-                'content': content,
-                'last_modified': int(datetime.datetime.now().timestamp()),
-                'created_at': int(datetime.datetime.now().timestamp())
-            }
-            
-            # Check if document already exists
-            existing_idx = None
-            for i, doc in enumerate(self.doc_metadata):
-                if doc['filepath'] == filepath:
-                    existing_idx = i
-                    break
-            
-            if existing_idx is not None:
-                # Update existing document
-                self.doc_metadata[existing_idx] = metadata
-                logger.info(f"✓ Updated document: {filepath}")
+            # Determine whether to chunk or index as whole document
+            if chunk_by_sections and filepath.endswith('.md'):
+                # Chunk markdown by sections
+                chunks = chunk_markdown(content, filepath)
+                logger.info(f"✓ Split {filepath} into {len(chunks)} chunks")
+                
+                # Index each chunk separately
+                chunk_embeddings = []
+                for i, chunk in enumerate(chunks):
+                    # Generate embedding for chunk
+                    chunk_embedding = self._get_embedding(chunk.content[:1000])
+                    if chunk_embedding is not None:
+                        chunk_embeddings.append(chunk_embedding)
+                        
+                        # Add to FAISS index
+                        if self.index is None:
+                            self.index = faiss.IndexFlatIP(self.dimension)
+                        self.index.add(np.array([chunk_embedding]))
+                        
+                        # Store chunk metadata
+                        self._store_chunk_metadata(chunk)
+                
+                # Also store the full document for backward compatibility
+                metadata = {
+                    'filepath': filepath,
+                    'content': content,
+                    'last_modified': int(datetime.datetime.now().timestamp()),
+                    'created_at': int(datetime.datetime.now().timestamp()),
+                    'is_chunked': True,
+                    'chunk_count': len(chunks)
+                }
+                
+                # Add document metadata (pointing to chunks)
+                existing_idx = None
+                for i, doc in enumerate(self.doc_metadata):
+                    if doc['filepath'] == filepath:
+                        existing_idx = i
+                        break
+                
+                if existing_idx is not None:
+                    self.doc_metadata[existing_idx] = metadata
+                else:
+                    self.doc_metadata.append(metadata)
+                
+                # Store in database
+                self._store_embedding(metadata, content)
+                
+                if chunk_embeddings:
+                    logger.info(f"✓ Indexed {len(chunks)} chunks with embeddings")
+                
             else:
-                # Add new document
-                self.doc_metadata.append(metadata)
+                # Traditional document indexing (no chunking)
+                metadata = {
+                    'filepath': filepath,
+                    'content': content,
+                    'last_modified': int(datetime.datetime.now().timestamp()),
+                    'created_at': int(datetime.datetime.now().timestamp()),
+                    'is_chunked': False
+                }
                 
-                # Add to FAISS index
-                if embedding is not None:
-                    if self.index is None:
-                        self.index = faiss.IndexFlatIP(self.dimension)
-                    self.index.add(np.array([embedding]))
+                # Check if document already exists
+                existing_idx = None
+                for i, doc in enumerate(self.doc_metadata):
+                    if doc['filepath'] == filepath:
+                        existing_idx = i
+                        break
                 
-                logger.info(f"✓ Added document: {filepath}")
-            
-            # Store in database
-            self._store_embedding(metadata, content)
+                if existing_idx is not None:
+                    self.doc_metadata[existing_idx] = metadata
+                    logger.info(f"✓ Updated document: {filepath}")
+                else:
+                    self.doc_metadata.append(metadata)
+                    
+                    # Add to FAISS index
+                    if main_embedding is not None:
+                        if self.index is None:
+                            self.index = faiss.IndexFlatIP(self.dimension)
+                        self.index.add(np.array([main_embedding]))
+                    
+                    logger.info(f"✓ Added document: {filepath}")
+                
+                # Store in database
+                self._store_embedding(metadata, content)
             
             return True
             
@@ -997,16 +1396,20 @@ class MemoryRetrieval:
         
         return results
     
-    def search(self, query: str, top_k: int = 5) -> List[Dict]:
+    def search(self, query: str, top_k: int = 5, chunk_mode: str = "chunk") -> List[Dict]:
         """
         Search memory for relevant documents with validation.
         
         Args:
             query: Search query string
             top_k: Number of relevant documents to return
+            chunk_mode: How to return results:
+                       - "chunk": Return individual chunks with full metadata
+                       - "document": Return full documents only
+                       - "hybrid": Return both chunks and documents
             
         Returns:
-            List of {filepath, content, score} dicts
+            List of {filepath, content, score, chunk_info?} dicts
         """
         # Validate query
         valid, msg = self.config.validate_query(query)
@@ -1036,18 +1439,68 @@ class MemoryRetrieval:
         # Search FAISS index
         D, I = self.index.search(np.array([query_embedding]), top_k)
         
-        # Build results
+        # Build results based on chunk_mode
         results = []
+        processed_chunks = set()  # Track processed chunk IDs for deduplication
+        
         for idx in range(len(I[0])):
             doc_idx = I[0][idx]
             if doc_idx >= len(self.doc_metadata):
                 continue
             
-            results.append({
-                'filepath': self.doc_metadata[doc_idx]['filepath'],
-                'content': self.doc_metadata[doc_idx].get('content', ''),
-                'score': float(D[0][idx])
-            })
+            doc = self.doc_metadata[doc_idx]
+            filepath = doc['filepath']
+            
+            # Handle chunk_mode
+            if chunk_mode == "document" or not doc.get('is_chunked', False):
+                # Return full document
+                results.append({
+                    'filepath': filepath,
+                    'content': doc.get('content', ''),
+                    'score': float(D[0][idx]),
+                    'chunk_mode': 'document',
+                    'is_chunked': doc.get('is_chunked', False)
+                })
+            elif chunk_mode == "chunk":
+                # Return individual chunks
+                chunks = self._get_chunks_for_file(filepath)
+                for chunk in chunks:
+                    if chunk.id not in processed_chunks:
+                        processed_chunks.add(chunk.id)
+                        results.append({
+                            'filepath': chunk.parent_file,
+                            'content': chunk.content,
+                            'score': float(D[0][idx]),
+                            'chunk_mode': 'chunk',
+                            'chunk_info': chunk.to_dict()
+                        })
+            elif chunk_mode == "hybrid":
+                # Return both chunks and document
+                chunks = self._get_chunks_for_file(filepath)
+                chunk_results = []
+                for chunk in chunks:
+                    if chunk.id not in processed_chunks:
+                        processed_chunks.add(chunk.id)
+                        chunk_results.append({
+                            'filepath': chunk.parent_file,
+                            'content': chunk.content,
+                            'score': float(D[0][idx]),
+                            'chunk_mode': 'chunk',
+                            'chunk_info': chunk.to_dict()
+                        })
+                
+                # Add document result
+                doc_result = {
+                    'filepath': filepath,
+                    'content': doc.get('content', ''),
+                    'score': float(D[0][idx]),
+                    'chunk_mode': 'document',
+                    'is_chunked': doc.get('is_chunked', False)
+                }
+                
+                # Combine document with its chunks
+                doc_result['chunks'] = chunk_results
+                results.append(doc_result)
         
         # Apply recency-based ranking enhancement if enabled
         if self.config.enable_recency_ranking:
@@ -1061,6 +1514,49 @@ class MemoryRetrieval:
         
         logger.debug(f"Search returned {len(results)} results for query: '{query[:50]}...'")
         return results
+    
+    def _get_chunks_for_file(self, filepath: str) -> List[ChunkMetadata]:
+        """
+        Retrieve chunks for a file from database.
+        
+        Args:
+            filepath: File path
+            
+        Returns:
+            List of ChunkMetadata objects
+        """
+        if not self.conn:
+            return []
+        
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute("""
+                SELECT chunk_id, parent_file, heading, content, keywords, 
+                       category, token_count, chunk_index
+                FROM chunks WHERE parent_file = ?
+                ORDER BY chunk_index
+            """, (filepath,))
+            
+            chunks = []
+            for row in cursor.fetchall():
+                keywords = row[4].split(',') if row[4] else []
+                chunk = ChunkMetadata(
+                    id=row[0],
+                    parent_file=row[1],
+                    heading=row[2],
+                    content=row[3],
+                    keywords=keywords,
+                    category=row[5],
+                    tokens=row[6],
+                    chunk_index=row[7]
+                )
+                chunks.append(chunk)
+            
+            return chunks
+            
+        except Exception as e:
+            logger.error(f"Failed to retrieve chunks for {filepath}: {e}")
+            return []
     
     def persist(self) -> bool:
         """Save index and metadata to disk for persistence."""

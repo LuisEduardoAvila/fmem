@@ -222,8 +222,8 @@ def main():
                 skipped_count += 1
                 continue
             
-            # Add document with location weight metadata
-            success = mr.add_document(filepath)
+            # Add document with location weight metadata (enable chunking by default)
+            success = mr.add_document(filepath, chunk_by_sections=True)
             
             if success:
                 print(f"  ✓ Indexed: {format_file_info(filepath)}")

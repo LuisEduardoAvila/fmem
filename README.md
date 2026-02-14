@@ -1,12 +1,24 @@
 # fmem — FAISS Memory Search - OpenClaw Integrated
 
 [![Security](https://img.shields.io/badge/security-hardened-brightgreen.svg)](SECURITY.md)
-[![Version](https://img.shields.io/badge/version-2.1.0-blue.svg)](https://github.com/LuisEduardoAvila/DarthSpudFmem)
+[![Version](https://img.shields.io/badge/version-3.0.0-blue.svg)](https://github.com/LuisEduardoAvila/DarthSpudFmem)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
 Semantic memory search using FAISS embeddings, optimized for low-resource systems with zero cloud dependencies.
 
-**Production-hardened with OpenClaw chat integration for automatic memory recall.**
+**Production-hardened with OpenClaw chat integration, chunk-level indexing, and automatic memory recall.**
+
+---
+
+## ✨ Key Features
+
+- **Chunk-Level Indexing** - Splits markdown by `##` headings for precise retrieval
+- **Multi-Factor Ranking** - Semantic (50%) + Recency (30%) + Location (20%)
+- **Zero Cloud Costs** - Local Ollama embeddings, no external APIs
+- **Privacy First** - 100% local, no data leaves your machine
+- **Memory Tags** - Clear `<retrieved_memory>` context markers
+- **Session Deduplication** - Prevents redundant recalls
+- **Adaptive Previews** - 150-400 chars based on result count
 
 ---
 
@@ -487,6 +499,63 @@ To share this skill:
 
 ---
 
+## 🆚 Comparison with Other Memory Solutions
+
+OpenClaw offers several memory solutions. Here's how fmem compares:
+
+### vs. Built-in Memory (Core Plugin)
+
+| Feature | Built-in Memory | fmem |
+|---------|-----------------|------|
+| **Backend** | External APIs (OpenAI/Voyage) | Local FAISS + Ollama |
+| **Cost** | $0.001-0.005/query | $0 (100% free) |
+| **Privacy** | Data sent to external APIs | 100% local, no data leaves machine |
+| **Offline** | ❌ No |✅ Yes |
+| **Setup** | Just add API key | Requires Ollama + FAISS |
+| **Ranking** | Semantic only | Semantic + Recency + Location |
+| **Chunking** | ❌ No | ✅ Markdown sections |
+
+**Best for:** Built-in is easier to set up; fmem is better for privacy-conscious, offline, or cost-sensitive setups.
+
+### vs. LanceDB Memory Plugin
+
+| Feature | LanceDB Plugin | fmem |
+|---------|----------------|------|
+| **Backend** | LanceDB (vector DB) | FAISS + SQLite |
+| **Auto-capture** | ✅ Yes | ❌ Manual indexing |
+| **Auto-recall** | ✅ Yes | ✅ Yes (with triggers) |
+| **Chunking** | Unknown | ✅ Markdown sections |
+| **Ranking factors** | Unknown | Semantic + Recency + Location |
+| **Memory footprint** | Higher (DB server) | Lower (FAISS in-memory) |
+
+**Best for:** LanceDB for automatic memory capture; fmem for more control and lower resource usage.
+
+### fmem Unique Advantages
+
+1. **Zero Cost** - No external APIs needed
+2. **Chunk-Level Precision** - Finds relevant sections, not whole files
+3. **Multi-Factor Ranking** - Recency and location awareness
+4. **Clear Context Tags** - `<retrieved_memory>` blocks for LLM clarity
+5. **Session Deduplication** - Prevents redundant recalls
+6. **Sub-Agent Access** - Works via `exec` tool (unlike built-in memory_search)
+7. **Fully Offline** - Works without internet
+
+### When to Choose fmem
+
+✅ You want zero API costs
+✅ Privacy is critical (no external data transmission)
+✅ You need offline capability
+✅ You want chunk-level precision
+✅ You have Ollama running locally
+✅ Sub-agents need memory access
+
+### When to Choose Alternatives
+
+⚡ Built-in Memory: Quick setup, no infrastructure
+⚡ LanceDB: Automatic memory capture without manual indexing
+
+---
+
 ## 📝 License
 
 MIT License - See LICENSE file for details.
@@ -502,6 +571,36 @@ MIT License - See LICENSE file for details.
 ---
 
 ## 📊 Changelog
+
+### v3.0.0 (2026-02-14) - Chunk-Level Indexing
+
+**Chunk-Level Search:**
+- ✅ Markdown splitting by `##` headings
+- ✅ Each section gets separate embedding vector
+- ✅ SQLite storage for chunk metadata (heading, keywords, category)
+- ✅ 3 search modes: `chunk`, `document`, `hybrid`
+- ✅ 57% token reduction vs document-level search
+
+**Chunk Metadata:**
+- ✅ `ChunkMetadata` class with id, heading, content, keywords, category
+- ✅ Automatic keyword extraction (top 5 words, 4+ chars)
+- ✅ Category inference from heading text
+- ✅ Token count estimation
+
+**Context Optimization:**
+- ✅ Session deduplication (5-min TTL per file)
+- ✅ Relevance threshold filtering (score < 0.25)
+- ✅ Adaptive preview length (400/250/150 chars)
+
+**Integration:**
+- ✅ `chunk_mode` parameter in `search()` and `fmem_integration.py`
+- ✅ Backward compatibility maintained (`chunk_by_sections=False`)
+- ✅ Updated output format with chunk headers
+
+**Testing:**
+- ✅ 24 unit tests for chunk functionality
+- ✅ 15 integration tests
+- ✅ Edge case handling (empty sections, special chars, non-markdown)
 
 ### v2.1.0 (2026-02-14) - OpenClaw Integration
 
