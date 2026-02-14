@@ -1279,7 +1279,7 @@ Examples:
                 # Single file or directory
                 if os.path.isdir(args.filepath) and args.recursive:
                     import glob
-                    for ext in self.config.VALID_EXTENSIONS:
+                    for ext in CONFIG.VALID_EXTENSIONS:
                         files_to_add.extend(glob.glob(f"{args.filepath}/**/*{ext}", recursive=True))
                 else:
                     files_to_add = [args.filepath]
