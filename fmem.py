@@ -1314,10 +1314,11 @@ Examples:
             memory.persist()
         
         elif args.command == 'reset':
-            if not args.quiet:
+            quiet = getattr(args, 'quiet', False)
+            if not quiet:
                 print("\nResetting memory...")
             memory.reset()
-            if not args.quiet:
+            if not quiet:
                 print("✓ Done\n")
         
         elif args.command == 'status':

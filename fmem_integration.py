@@ -162,7 +162,7 @@ def auto_recall(message: str, top_k: int = 3) -> list:
 
 def format_results(results: list, max_preview: int = 200) -> str:
     """
-    Format search results for context injection.
+    Format search results for context injection with clear memory tags.
     
     Args:
         results: List of search results
@@ -174,11 +174,14 @@ def format_results(results: list, max_preview: int = 200) -> str:
     if not results:
         return ""
     
-    output = ["\n📚 Retrieved from memory:"]
+    output = ["\n<retrieved_memory>"]
+    output.append("📝 The following is retrieved from your long-term memory (previous interactions, notes, and preferences).")
+    output.append("This context helps inform the current conversation but may not reflect recent updates.\n")
     
     for i, r in enumerate(results[:3], 1):
         filepath = r['filepath']
         filename = os.path.basename(filepath)
+        dirname = os.path.basename(os.path.dirname(filepath)) if '/' in filepath else ''
         
         # Get preview
         content = r.get('content', '')
@@ -187,15 +190,16 @@ def format_results(results: list, max_preview: int = 200) -> str:
         # Format scores if available
         scores = ""
         if 'semantic_score' in r:
-            scores = f" (semantic={r['semantic_score']:.2f}"
+            scores = f" | relevance={r['semantic_score']:.2f}"
             if 'recency_score' in r:
                 scores += f", recency={r['recency_score']:.2f}"
-            if 'location_normalized' in r:
-                scores += f", location={r['location_normalized']:.2f}"
-            scores += ")"
         
-        output.append(f"\n[{i}] {filename}{scores}")
-        output.append(f"    {preview.strip()}")
+        location_label = f"[{dirname}/]" if dirname else ""
+        output.append(f"<memory_item index=\"{i}\" source=\"{location_label}{filename}\"{scores}>")
+        output.append(preview.strip())
+        output.append(f"</memory_item>")
+    
+    output.append("</retrieved_memory>")
     
     return "\n".join(output)
 

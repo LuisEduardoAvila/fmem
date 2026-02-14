@@ -117,12 +117,7 @@ def scan_memory_files_with_locations() -> List[Tuple[str, float]]:
             files_with_weights.append((filepath, location_weight))
             print(f"  notes/{os.path.basename(filepath)} (location weight: {location_weight:.1f})")
     
-    # Index PERSONAS directory (if exists)
-    if os.path.exists('PERSONAS'):
-        for filepath in glob.glob('PERSONAS/*.md'):
-            location_weight = get_file_location_weight(filepath)
-            files_with_weights.append((filepath, location_weight))
-            print(f"  PERSONAS/{os.path.basename(filepath)} (location weight: {location_weight:.1f})")
+    # PERSONAS excluded - already loaded in agent context
     
     return files_with_weights
 
