@@ -69,16 +69,19 @@ If needed, manually search your memory:
 
 ```bash
 # Search
-python3 /path/to/fmem/fmem.py search "your query here" -k 5
+python3 -m fmem.cli search "your query here" -k 5
 
 # Add document
-python3 /path/to/fmem/fmem.py add /path/to/document.md
+python3 -m fmem.cli add /path/to/document.md
 
 # Check status
-python3 /path/to/fmem/fmem.py status
+python3 -m fmem.cli status
+
+# Reset memory
+python3 -m fmem.cli reset
 
 # Health check
-python3 /path/to/fmem/fmem.py health
+python3 -m fmem.cli health
 ```
 
 ---
@@ -223,10 +226,10 @@ By default, fmem implements:
 
 ```bash
 # Add a single file
-python3 fmem.py add /path/to/file.md
+python3 -m fmem.cli add /path/to/file.md
 
 # Add with progress
-python3 fmem.py add /path/to/file.md --quiet
+python3 -m fmem.cli add /path/to/file.md --quiet
 ```
 
 #### Bulk Add (Multiple Files)
@@ -236,43 +239,43 @@ python3 fmem.py add /path/to/file.md --quiet
 echo -e "/path/to/file1.md\n/path/to/file2.md" > batch.txt
 
 # Add batch
-python3 fmem.py add --batch batch.txt
+python3 -m fmem.cli add --batch batch.txt
 ```
 
 #### Recursive Directory Scan
 
 ```bash
 # Scan directory recursively
-python3 fmem.py add /path/to/dir -r
+python3 -m fmem.cli add /path/to/dir -r
 
 # Skip already indexed files
-python3 fmem.py add /path/to/dir --skip-existing
+python3 -m fmem.cli add /path/to/dir --skip-existing
 ```
 
 ### 2. Searching Memory
 
 ```bash
 # Basic search
-python3 fmem.py search "Oracle projects"
+python3 -m fmem.cli search "Oracle projects"
 
 # Custom result count
-python3 fmem.py search "Oracle projects" -k 10
+python3 -m fmem.cli search "Oracle projects" -k 10
 
 # Quiet mode (results only)
-python3 fmem.py search "query" --quiet
+python3 -m fmem.cli search "query" --quiet
 ```
 
 ### 3. Memory Management
 
 ```bash
 # Show status
-python3 fmem.py status
+python3 -m fmem.cli status
 
 # Health check
-python3 fmem.py health
+python3 -m fmem.cli health
 
 # Reset all memory
-python3 fmem.py reset
+python3 -m fmem.cli reset
 ```
 
 ---
@@ -294,13 +297,15 @@ memory = MemoryRetrieval(
 # Add document
 success = memory.add_document(
     "/path/to/file.md",
-    content=None  # Optional - reads file if not provided
+    content=None,          # Optional - reads file if not provided
+    chunk_by_sections=True  # Optional - split markdown by ## headings (default: True)
 )
 
 # Search
 results = memory.search(
     "your query",
-    top_k=5
+    top_k=5,
+    chunk_mode="chunk"  # Options: "chunk", "document", "hybrid" (default: "chunk")
 )
 
 # Persist changes
@@ -317,15 +322,15 @@ is_healthy = memory.health_check()
 
 | Method | Parameters | Returns | Description |
 |--------|------------|---------|-------------|
-| `add_document()` | filepath, content=None | bool | Add a document to memory |
+| `add_document()` | filepath, content=None, chunk_by_sections=True | bool | Add a document to memory. `chunk_by_sections` splits markdown by ## headings |
 | `add_documents_batch()` | files, use_progress=False | dict | Add multiple documents |
-| `search()` | query, top_k=5 | list | Search for relevant documents |
-| `persist()` | - | bool | Save index and metadata |
-| `reset()` | - | bool | Clear all data |
-| `get_status()` | - | dict | Get system status |
-| `health_check()` | - | bool | Check system health |
-| `get_document_count()` | - | int | Get document count |
-| `get_document_paths()` | - | list | Get all document paths |
+| `search()` | query, top_k=5, chunk_mode="chunk" | list | Search for relevant documents. `chunk_mode`: "chunk", "document", or "hybrid" |
+| `persist()` | - | bool | Save index and metadata to disk |
+| `reset()` | - | bool | Clear all data and reset to initial state |
+| `get_status()` | - | dict | Get system status including document count, index state |
+| `health_check()` | - | bool | Check if Ollama, index, and database are healthy |
+| `get_document_count()` | - | int | Get total number of indexed documents |
+| `get_document_paths()` | - | list | Get list of all indexed document paths |
 
 ---
 
@@ -349,12 +354,22 @@ No special commands needed—just ask naturally!
 ## 📁 File Structure
 
 ```
-skills/fmem/
-├── fmem.py              # Core implementation (v2.0)
-├── test_fmem_comprehensive.py  # Comprehensive test suite
-├── SECURITY.md          # Security documentation
-├── README.md            # This file
-└── SKILL.md             # User-facing documentation
+fmem/
+├── fmem/
+│   ├── __init__.py              # Package initialization
+│   ├── fmem.py                  # Core implementation
+│   ├── cli.py                   # Command-line interface
+│   ├── enhanced_indexer.py      # Enhanced indexing with location weights
+│   ├── enhanced_search.py       # Enhanced search functionality
+│   └── fmem_integration.py      # OpenClaw integration
+├── tests/
+│   ├── test_chunking.py         # Chunking functionality tests
+│   ├── test_recency.py          # Recency ranking tests
+│   └── test_location_ranking.py # Location ranking tests
+├── SECURITY.md                  # Security documentation
+├── README.md                    # This file
+└── docs/
+    └── enhanced_fmem.conf       # Configuration file template
 
 ~/.openclaw/memory/
 ├── faiss_index.fai      # Binary FAISS index
@@ -367,11 +382,15 @@ skills/fmem/
 
 ## 🧪 Testing
 
-Run the comprehensive test suite to verify installation:
+Run the test suite to verify installation:
 
 ```bash
-cd /tmp/DarthSpudFmem
-python3 test_fmem_comprehensive.py
+cd /home/luis/.openclaw/workspace/DarthSpud
+python3 -m pytest tests/ -v
+# Or run individual tests:
+python3 tests/test_chunking.py
+python3 tests/test_recency.py
+python3 tests/test_location_ranking.py
 ```
 
 Expected output:
@@ -392,11 +411,14 @@ OK
 ### Running Specific Tests
 
 ```bash
-# Run only security tests
-python3 -m unittest test_fmem_comprehensive.TestSecurity
+# Run specific test file
+python3 tests/test_chunking.py
 
 # Run with verbose output
-python3 test_fmem_comprehensive.py -v
+python3 tests/test_chunking.py -v
+
+# Run all tests with pytest
+python3 -m pytest tests/ -v
 ```
 
 ---
@@ -476,14 +498,14 @@ File → Validate → Read → Embeddings (nomic-embed) → FAISS Index → Sear
 
 **1. Check if documents are added:**
 ```bash
-python3 fmem.py status
-python3 fmem.py add /path/to/document.md
+python3 -m fmem.cli status
+python3 -m fmem.cli add /path/to/document.md
 ```
 
 **2. Verify embeddings working:**
 ```bash
 # Test Ollama
-curl http://localhost:11434/v1/models
+curl http://localhost:11434/api/tags
 
 # Should list nomic-embed-text
 ```
@@ -506,18 +528,18 @@ chmod 755 ~/.openclaw/memory/
 
 ```bash
 # Ensure path is set
-export PYTHONPATH="${PYTHONPATH}:/tmp/DarthSpudFmem"
+export PYTHONPATH="${PYTHONPATH}:/home/luis/.openclaw/workspace/DarthSpud"
 
 # Or run from proper directory
-cd /tmp/DarthSpudFmem
-python3 fmem.py
+cd /home/luis/.openclaw/workspace/DarthSpud
+python3 -m fmem.cli
 ```
 
 ### Ollama Connection Failed?
 
 ```bash
 # Check Ollama is running
-curl http://localhost:11434/v1/models
+curl http://localhost:11434/api/tags
 
 # Pull required model
 ollama pull nomic-embed-text
@@ -549,7 +571,7 @@ export FMEM_OLLAMA_URL="http://localhost:11434"
 
 5. **Monitor health**:
    ```bash
-   python3 fmem.py health
+   python3 -m fmem.cli health
    ```
 
 ---
@@ -584,7 +606,7 @@ To share this skill:
 ## 📞 Support
 
 - **Issues**: Open an issue on GitHub repo
-- **Examples**: Check `test_fmem_comprehensive.py` for usage examples
+- **Examples**: Check `tests/` directory for usage examples
 - **Logs**: Monitor `~/.openclaw/memory/` for errors
 
 ---
@@ -768,8 +790,8 @@ This version has been audited for:
 ---
 
 **Created:** 2026-02-12  
-**Updated:** 2026-02-14  
-**Version:** 2.1.0  
+**Updated:** 2026-02-15  
+**Version:** 3.0.0  
 **Status:** Production Ready ✅  
 **Security:** Hardened ✅  
 

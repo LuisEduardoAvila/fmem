@@ -15,10 +15,18 @@ import re
 import os
 import sys
 import time
+import logging
 from typing import Set, Dict
 
-# Add DarthSpud to path
-workspace = os.environ.get('FMEM_WORKSPACE', '/home/luis/.openclaw/workspace')
+# Set up logging first
+logger = logging.getLogger(__name__)
+
+# Get workspace from environment variable with proper fallback
+workspace = os.environ.get('FMEM_WORKSPACE')
+if not workspace:
+    # Warn but continue - don't hardcode paths
+    workspace = '/home/luis/.openclaw/workspace'
+    logger.warning(f"FMEM_WORKSPACE not set, using fallback: {workspace}")
 darthspud_dir = os.path.join(workspace, 'DarthSpud')
 if darthspud_dir not in sys.path:
     sys.path.insert(0, darthspud_dir)
@@ -36,10 +44,14 @@ _dedupe_ttl_seconds = 300  # 5 minutes before allowing re-recall
 MIN_RELEVANCE_SCORE = 0.25
 
 def get_memory():
-    """Get or create memory instance."""
+    """Get or create memory instance with error handling."""
     global _memory
     if _memory is None:
-        _memory = MemoryRetrieval()
+        try:
+            _memory = MemoryRetrieval()
+        except Exception as e:
+            logger.error(f"Failed to initialize memory: {e}")
+            _memory = None
     return _memory
 
 # Search trigger patterns
@@ -130,7 +142,7 @@ def get_search_bias(message: str) -> str:
 
 def auto_recall(message: str, top_k: int = 3, chunk_mode: str = "chunk") -> list:
     """
-    Perform automatic memory recall based on message.
+    Perform automatic memory recall based on message with graceful degradation.
     
     Args:
         message: User message to analyze
@@ -138,52 +150,58 @@ def auto_recall(message: str, top_k: int = 3, chunk_mode: str = "chunk") -> list
         chunk_mode: How to return results ("chunk", "document", or "hybrid")
         
     Returns:
-        List of search results with enhanced scoring
+        List of search results with enhanced scoring, or empty list on error
     """
-    memory = get_memory()
-    
-    # Check if we have documents
-    if memory.get_document_count() == 0:
-        return []
-    
-    # Extract query
-    query = extract_search_query(message)
-    
-    # Get search bias
-    bias = get_search_bias(message)
-    
-    # Adjust weights based on bias
-    if bias == 'recency':
-        # Temporarily boost recency weight
-        original_recency = memory.config.recency_weight
-        memory.config.recency_weight = min(0.5, original_recency + 0.2)
-        results = memory.search(query, top_k=top_k + 2, chunk_mode=chunk_mode)
-        memory.config.recency_weight = original_recency
-    elif bias == 'location':
-        # Temporarily boost location weight
-        original_location = memory.config.location_weight
-        memory.config.location_weight = min(0.4, original_location + 0.1)
-        results = memory.search(query, top_k=top_k + 2, chunk_mode=chunk_mode)
-        memory.config.location_weight = original_location
-    else:
-        results = memory.search(query, top_k=top_k + 2, chunk_mode=chunk_mode)
-    
-    # Filter by relevance threshold
-    results = [r for r in results if r.get('score', 0) >= MIN_RELEVANCE_SCORE]
-    
-    # Deduplicate: remove recently recalled files
-    now = time.time()
-    filtered = []
-    for r in results:
-        filepath = r.get('filepath', '')
-        last_recalled = _session_recalled.get(filepath, 0)
+    try:
+        memory = get_memory()
         
-        # Include if not recently recalled (TTL expired or never recalled)
-        if now - last_recalled > _dedupe_ttl_seconds:
-            filtered.append(r)
-            _session_recalled[filepath] = now
-    
-    return filtered[:top_k]
+        # Check if we have documents
+        if memory is None or memory.get_document_count() == 0:
+            return []
+        
+        # Extract query
+        query = extract_search_query(message)
+        
+        # Get search bias
+        bias = get_search_bias(message)
+        
+        # Adjust weights based on bias
+        if bias == 'recency':
+            # Temporarily boost recency weight
+            original_recency = memory.config.recency_weight
+            memory.config.recency_weight = min(0.5, original_recency + 0.2)
+            results = memory.search(query, top_k=top_k + 2, chunk_mode=chunk_mode)
+            memory.config.recency_weight = original_recency
+        elif bias == 'location':
+            # Temporarily boost location weight
+            original_location = memory.config.location_weight
+            memory.config.location_weight = min(0.4, original_location + 0.1)
+            results = memory.search(query, top_k=top_k + 2, chunk_mode=chunk_mode)
+            memory.config.location_weight = original_location
+        else:
+            results = memory.search(query, top_k=top_k + 2, chunk_mode=chunk_mode)
+        
+        # Filter by relevance threshold
+        results = [r for r in results if r.get('score', 0) >= MIN_RELEVANCE_SCORE]
+        
+        # Deduplicate: remove recently recalled files
+        now = time.time()
+        filtered = []
+        for r in results:
+            filepath = r.get('filepath', '')
+            last_recalled = _session_recalled.get(filepath, 0)
+            
+            # Include if not recently recalled (TTL expired or never recalled)
+            if now - last_recalled > _dedupe_ttl_seconds:
+                filtered.append(r)
+                _session_recalled[filepath] = now
+        
+        return filtered[:top_k]
+        
+    except Exception as e:
+        # Graceful degradation: log error and return empty list instead of crashing
+        logger.warning(f"Memory recall failed (degraded): {e}")
+        return []
 
 def format_results(results: list, max_preview: int = 200, chunk_mode: str = "chunk") -> str:
     """
@@ -201,131 +219,137 @@ def format_results(results: list, max_preview: int = 200, chunk_mode: str = "chu
     Returns:
         Formatted string for context
     """
-    if not results:
-        return ""
-    
-    # Adaptive preview: more space for single result, less for many
-    result_count = len(results)
-    if result_count == 1:
-        adaptive_preview = 400  # Deep dive into single result
-    elif result_count == 2:
-        adaptive_preview = 250  # Balanced
-    else:
-        adaptive_preview = 150  # Quick overview
-    
-    # Use smaller of provided max or adaptive
-    actual_preview = min(max_preview, adaptive_preview)
-    
-    # Group results by parent file
-    parent_docs = {}  # filepath -> {document, chunks: []}
-    chunk_results = []
-    
-    for r in results:
-        filepath = r['filepath']
-        chunk_info = r.get('chunk_info')
+    try:
+        if not results:
+            return ""
         
-        if chunk_info:
-            # This is a chunk result
-            if filepath not in parent_docs:
-                parent_docs[filepath] = {'document': None, 'chunks': []}
-            parent_docs[filepath]['chunks'].append(r)
+        # Adaptive preview: more space for single result, less for many
+        result_count = len(results)
+        if result_count == 1:
+            adaptive_preview = 400  # Deep dive into single result
+        elif result_count == 2:
+            adaptive_preview = 250  # Balanced
         else:
-            # This is a document result
-            if filepath not in parent_docs:
-                parent_docs[filepath] = {'document': r, 'chunks': []}
+            adaptive_preview = 150  # Quick overview
+        
+        # Use smaller of provided max or adaptive
+        actual_preview = min(max_preview, adaptive_preview)
+        
+        # Group results by parent file
+        parent_docs = {}  # filepath -> {document, chunks: []}
+        chunk_results = []
+        
+        for r in results:
+            filepath = r['filepath']
+            chunk_info = r.get('chunk_info')
+            
+            if chunk_info:
+                # This is a chunk result
+                if filepath not in parent_docs:
+                    parent_docs[filepath] = {'document': None, 'chunks': []}
+                parent_docs[filepath]['chunks'].append(r)
             else:
-                parent_docs[filepath]['document'] = r
-    
-    output = ["\n<retrieved_memory>"]
-    output.append("📝 The following is retrieved from your long-term memory (previous interactions, notes, and preferences).")
-    output.append("This context helps inform the current conversation but may not reflect recent updates.\n")
-    
-    item_index = 1
-    
-    for filepath, data in parent_docs.items():
-        filename = os.path.basename(filepath)
-        dirname = os.path.basename(os.path.dirname(filepath)) if '/' in filepath else ''
+                # This is a document result
+                if filepath not in parent_docs:
+                    parent_docs[filepath] = {'document': r, 'chunks': []}
+                else:
+                    parent_docs[filepath]['document'] = r
         
-        # Format scores if available
-        scores = ""
-        if 'semantic_score' in data['document'] if data['document'] else r:
-            score_source = data['document'] if data['document'] else r
-            scores = f" | relevance={score_source['semantic_score']:.2f}"
-            if 'recency_score' in score_source:
-                scores += f", recency={score_source['recency_score']:.2f}"
+        output = ["\n<retrieved_memory>"]
+        output.append("📝 The following is retrieved from your long-term memory (previous interactions, notes, and preferences).")
+        output.append("This context helps inform the current conversation but may not reflect recent updates.\n")
         
-        location_label = f"[{dirname}/]" if dirname else ""
+        item_index = 1
         
-        if chunk_mode == "chunk":
-            # Format individual chunks
-            chunks = data.get('chunks', [])
-            for chunk in chunks:
-                content = chunk.get('content', '')
-                preview = content[:actual_preview] + "..." if len(content) > actual_preview else content
-                
-                # Get chunk metadata
-                chunk_info = chunk.get('chunk_info', {})
-                heading = chunk_info.get('heading', 'Section')
-                keywords = chunk_info.get('keywords', [])
-                category = chunk_info.get('category', 'general')
-                
-                # Build keywords string
-                keywords_str = ', '.join(keywords) if keywords else ''
-                
-                output.append(f"<memory_chunk index=\"{item_index}\" source=\"{location_label}{filename}#{slugify(heading)}\" category=\"{category}\">")
-                output.append(f"<heading>{heading}</heading>")
-                output.append(f"<content>{preview.strip()}</content>")
-                if keywords_str:
-                    output.append(f"<keywords>{keywords_str}</keywords>")
-                output.append(f"</memory_chunk>")
-                item_index += 1
-                
-                # Limit to top 3 chunks total for context
-                if item_index > 4:
-                    break
-        elif chunk_mode == "document" or chunk_mode == "hybrid":
-            # Format full document
-            doc = data.get('document')
-            if doc:
-                content = doc.get('content', '')
-                preview = content[:actual_preview] + "..." if len(content) > actual_preview else content
-                
-                output.append(f"<memory_item index=\"{item_index}\" source=\"{location_label}{filename}\"{scores}>")
-                output.append(preview.strip())
-                output.append(f"</memory_item>")
-                item_index += 1
-        else:
-            # Default: format as chunks
-            chunks = data.get('chunks', [])
-            for chunk in chunks:
-                content = chunk.get('content', '')
-                preview = content[:actual_preview] + "..." if len(content) > actual_preview else content
-                
-                chunk_info = chunk.get('chunk_info', {})
-                heading = chunk_info.get('heading', 'Section')
-                keywords = chunk_info.get('keywords', [])
-                category = chunk_info.get('category', 'general')
-                
-                keywords_str = ', '.join(keywords) if keywords else ''
-                
-                output.append(f"<memory_chunk index=\"{item_index}\" source=\"{location_label}{filename}#{slugify(heading)}\" category=\"{category}\">")
-                output.append(f"<heading>{heading}</heading>")
-                output.append(f"<content>{preview.strip()}</content>")
-                if keywords_str:
-                    output.append(f"<keywords>{keywords_str}</keywords>")
-                output.append(f"</memory_chunk>")
-                item_index += 1
-                
-                if item_index > 4:
-                    break
+        for filepath, data in parent_docs.items():
+            filename = os.path.basename(filepath)
+            dirname = os.path.basename(os.path.dirname(filepath)) if '/' in filepath else ''
+            
+            # Format scores if available
+            scores = ""
+            if 'semantic_score' in data['document'] if data['document'] else r:
+                score_source = data['document'] if data['document'] else r
+                scores = f" | relevance={score_source['semantic_score']:.2f}"
+                if 'recency_score' in score_source:
+                    scores += f", recency={score_source['recency_score']:.2f}"
+            
+            location_label = f"[{dirname}/]" if dirname else ""
+            
+            if chunk_mode == "chunk":
+                # Format individual chunks
+                chunks = data.get('chunks', [])
+                for chunk in chunks:
+                    content = chunk.get('content', '')
+                    preview = content[:actual_preview] + "..." if len(content) > actual_preview else content
+                    
+                    # Get chunk metadata
+                    chunk_info = chunk.get('chunk_info', {})
+                    heading = chunk_info.get('heading', 'Section')
+                    keywords = chunk_info.get('keywords', [])
+                    category = chunk_info.get('category', 'general')
+                    
+                    # Build keywords string
+                    keywords_str = ', '.join(keywords) if keywords else ''
+                    
+                    output.append(f"<memory_chunk index=\"{item_index}\" source=\"{location_label}{filename}#{slugify(heading)}\" category=\"{category}\">")
+                    output.append(f"<heading>{heading}</heading>")
+                    output.append(f"<content>{preview.strip()}</content>")
+                    if keywords_str:
+                        output.append(f"<keywords>{keywords_str}</keywords>")
+                    output.append(f"</memory_chunk>")
+                    item_index += 1
+                    
+                    # Limit to top 3 chunks total for context
+                    if item_index > 4:
+                        break
+            elif chunk_mode == "document" or chunk_mode == "hybrid":
+                # Format full document
+                doc = data.get('document')
+                if doc:
+                    content = doc.get('content', '')
+                    preview = content[:actual_preview] + "..." if len(content) > actual_preview else content
+                    
+                    output.append(f"<memory_item index=\"{item_index}\" source=\"{location_label}{filename}\"{scores}>")
+                    output.append(preview.strip())
+                    output.append(f"</memory_item>")
+                    item_index += 1
+            else:
+                # Default: format as chunks
+                chunks = data.get('chunks', [])
+                for chunk in chunks:
+                    content = chunk.get('content', '')
+                    preview = content[:actual_preview] + "..." if len(content) > actual_preview else content
+                    
+                    chunk_info = chunk.get('chunk_info', {})
+                    heading = chunk_info.get('heading', 'Section')
+                    keywords = chunk_info.get('keywords', [])
+                    category = chunk_info.get('category', 'general')
+                    
+                    keywords_str = ', '.join(keywords) if keywords else ''
+                    
+                    output.append(f"<memory_chunk index=\"{item_index}\" source=\"{location_label}{filename}#{slugify(heading)}\" category=\"{category}\">")
+                    output.append(f"<heading>{heading}</heading>")
+                    output.append(f"<content>{preview.strip()}</content>")
+                    if keywords_str:
+                        output.append(f"<keywords>{keywords_str}</keywords>")
+                    output.append(f"</memory_chunk>")
+                    item_index += 1
+                    
+                    if item_index > 4:
+                        break
+            
+            # Limit total items
+            if item_index > 4:
+                break
         
-        # Limit total items
-        if item_index > 4:
-            break
-    
-    output.append("</retrieved_memory>")
-    
-    return "\n".join(output)
+        output.append("</retrieved_memory>")
+        
+        return "\n".join(output)
+        
+    except Exception as e:
+        # Graceful degradation: log error and return empty string instead of crashing
+        logger.warning(f"Format results failed (degraded): {e}")
+        return ""
 
 
 def slugify(text: str) -> str:
@@ -359,8 +383,13 @@ def get_context_for_message(message: str, top_k: int = 3, chunk_mode: str = "chu
     if not should_search(message):
         return ""
     
-    results = auto_recall(message, top_k, chunk_mode)
-    return format_results(results, chunk_mode=chunk_mode)
+    try:
+        results = auto_recall(message, top_k, chunk_mode)
+        return format_results(results, chunk_mode=chunk_mode)
+    except Exception as e:
+        # Graceful degradation: return empty string instead of crashing
+        logger.warning(f"Context extraction failed (degraded): {e}")
+        return ""
 
 
 def clear_dedupe_cache():

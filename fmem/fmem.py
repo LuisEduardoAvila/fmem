@@ -321,9 +321,11 @@ import logging
 import datetime
 import hashlib
 import re
+import time
 from pathlib import Path
 from typing import List, Dict, Optional, Tuple, Set
 from contextlib import contextmanager
+from collections import OrderedDict
 
 # Configuration management with environment variable support
 import configparser
@@ -580,6 +582,100 @@ logger = setup_logging()
 
 
 # ============================================================================
+# LRU Cache with TTL for Embeddings
+# ============================================================================
+
+class _LRUCache:
+    """
+    Thread-safe LRU cache with TTL expiration.
+    Prevents unbounded memory growth while maintaining performance.
+    """
+    
+    def __init__(self, maxsize: int = 10000, ttl: int = 3600):
+        """
+        Initialize LRU cache.
+        
+        Args:
+            maxsize: Maximum number of entries (default 10000)
+            ttl: Time-to-live in seconds (default 3600 = 1 hour)
+        """
+        self.maxsize = maxsize
+        self.ttl = ttl
+        self.cache = OrderedDict()
+        self.timestamps = {}
+        self._lock = None  # Simplified - no threading in this codebase
+    
+    def _is_expired(self, key: str) -> bool:
+        """Check if a key has expired based on TTL."""
+        if key not in self.timestamps:
+            return True
+        elapsed = time.time() - self.timestamps[key]
+        return elapsed > self.ttl
+    
+    def get(self, key: str) -> Optional[np.ndarray]:
+        """
+        Get item from cache.
+        
+        Args:
+            key: Cache key (text hash)
+            
+        Returns:
+            Embedding array or None if not found/expired
+        """
+        if key not in self.cache:
+            return None
+        
+        # Check if expired
+        if self._is_expired(key):
+            self._evict(key)
+            return None
+        
+        # Move to end (most recently used)
+        self.cache.move_to_end(key)
+        return self.cache[key]
+    
+    def put(self, key: str, value: np.ndarray) -> None:
+        """
+        Add item to cache with LRU eviction.
+        
+        Args:
+            key: Cache key (text hash)
+            value: Embedding array
+        """
+        # Evict expired entries if cache is full
+        while len(self.cache) >= self.maxsize:
+            oldest_key = next(iter(self.cache))
+            self._evict(oldest_key)
+        
+        # Add new entry
+        self.cache[key] = value
+        self.timestamps[key] = time.time()
+    
+    def _evict(self, key: str) -> None:
+        """Evict a single key from cache."""
+        if key in self.cache:
+            del self.cache[key]
+        if key in self.timestamps:
+            del self.timestamps[key]
+    
+    def clear(self) -> None:
+        """Clear all cache entries."""
+        self.cache.clear()
+        self.timestamps.clear()
+    
+    def __len__(self) -> int:
+        """Return number of valid (non-expired) entries."""
+        return sum(1 for k in self.cache if not self._is_expired(k))
+    
+    def cleanup_expired(self) -> int:
+        """Remove all expired entries. Returns count of removed entries."""
+        expired_keys = [k for k in self.cache if self._is_expired(k)]
+        for key in expired_keys:
+            self._evict(key)
+        return len(expired_keys)
+
+
+# ============================================================================
 # Security Utilities
 # ============================================================================
 
@@ -795,7 +891,8 @@ class MemoryRetrieval:
         self.doc_metadata = []  # List of {filepath, content, last_modified}
         self.db_path = db_path or self.config.sqlite_path
         self.conn = None
-        self.embedding_cache = {}  # Cache embeddings for performance
+        # Embedding cache with TTL (1 hour) and LRU eviction (max 10000 entries)
+        self.embedding_cache = _LRUCache(maxsize=10000, ttl=3600)
         
         logger.info("Initializing MemoryRetrieval...")
         
@@ -1517,7 +1614,7 @@ class MemoryRetrieval:
     
     def _get_chunks_for_file(self, filepath: str) -> List[ChunkMetadata]:
         """
-        Retrieve chunks for a file from database.
+        Retrieve chunks for a file from database with path validation.
         
         Args:
             filepath: File path
@@ -1527,6 +1624,14 @@ class MemoryRetrieval:
         """
         if not self.conn:
             return []
+        
+        # Validate filepath to prevent SQL injection and path traversal
+        safe_path = sanitize_path(filepath, config=self.config)
+        if safe_path is None:
+            logger.warning(f"Invalid filepath for chunk retrieval: {filepath}")
+            return []
+        
+        filepath = safe_path
         
         try:
             cursor = self.conn.cursor()
