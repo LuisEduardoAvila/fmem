@@ -188,7 +188,7 @@ The agent reads `AGENTS.md` on every session startup, which includes instruction
 2. **Search fmem automatically** — Uses `auto_recall()` when triggers detected
 3. **Inject context naturally** — Results appear in conversation without technical tags
 
-> **Note:** The agent integration is automatic because fmem is located at `/home/luis/.openclaw/workspace/DarthSpud/fmem/` which is in the agent's workspace. The agent reads `AGENTS.md` automatically.
+> **Note:** The agent integration is automatic because fmem is located at `~/.openclaw/workspace/DarthSpud/fmem/` which is in the agent's workspace. The agent reads `AGENTS.md` automatically.
 
 ### Test Commands (Verify It's Working)
 
@@ -281,7 +281,7 @@ Agent: "Last week you mentioned working on the fmem documentation and
 
 ```bash
 # Check if AGENTS.md exists (required for automatic integration)
-cat /home/luis/.openclaw/workspace/AGENTS.md | grep -A 5 "Memory Recall"
+cat ~/.openclaw/workspace/AGENTS.md | grep -A 5 "Memory Recall"
 
 # Verify fmem is importable from agent's context
 python3 -c "from fmem import auto_recall; print('✓ auto_recall available')"
@@ -644,7 +644,7 @@ fmem/
 Run the test suite to verify installation:
 
 ```bash
-cd /home/luis/.openclaw/workspace/DarthSpud
+cd ~/.openclaw/workspace/DarthSpud
 python3 -m pytest tests/ -v
 # Or run individual tests:
 python3 tests/test_chunking.py
@@ -806,7 +806,7 @@ chmod 755 ~/.openclaw/memory/
 | Symptom | Likely Cause | Fix |
 |---------|--------------|-----|
 | Agent says "I don't see any memories" | No documents indexed | Add files: `python3 -m fmem.cli add /path/to/file.md` |
-| Agent ignores memory triggers | AGENTS.md not loaded | Verify fmem is in workspace at `/home/luis/.openclaw/workspace/DarthSpud/` |
+| Agent ignores memory triggers | AGENTS.md not loaded | Verify fmem is in workspace at `~/.openclaw/workspace/DarthSpud/` |
 | "ImportError: No module named fmem" | fmem not in Python path | Reinstall: `pip3 install -e /path/to/DarthSpud` |
 | Search returns empty | Ollama not running | `ollama serve` |
 | Search returns empty | Wrong embedding model | `ollama pull nomic-embed-text` |
@@ -836,10 +836,10 @@ If this works but agent doesn't recall, check that AGENTS.md exists in your work
 
 ```bash
 # Ensure path is set
-export PYTHONPATH="${PYTHONPATH}:/home/luis/.openclaw/workspace/DarthSpud"
+export PYTHONPATH="${PYTHONPATH}:~/.openclaw/workspace/DarthSpud"
 
 # Or run from proper directory
-cd /home/luis/.openclaw/workspace/DarthSpud
+cd ~/.openclaw/workspace/DarthSpud
 python3 -m fmem.cli
 ```
 

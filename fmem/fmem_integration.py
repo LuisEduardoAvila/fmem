@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 workspace = os.environ.get('FMEM_WORKSPACE')
 if not workspace:
     # Warn but continue - don't hardcode paths
-    workspace = '/home/luis/.openclaw/workspace'
+    workspace = '~/.openclaw/workspace'
     logger.warning(f"FMEM_WORKSPACE not set, using fallback: {workspace}")
 darthspud_dir = os.path.join(workspace, 'DarthSpud')
 if darthspud_dir not in sys.path:

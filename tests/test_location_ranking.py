@@ -37,11 +37,11 @@ def test_location_ranking():
         print("\nTesting location weight calculation:")
         
         test_files = [
-            "/home/luis/.openclaw/workspace/MEMORY.md",
-            "/home/luis/.openclaw/workspace/docs/formal-doc.md",
-            "/home/luis/.openclaw/workspace/projects/project-decision.md",
-            "/home/luis/.openclaw/workspace/chats/casual-chat.md",
-            "/home/luis/.openclaw/workspace/memory/session-log.md"
+            "~/.openclaw/workspace/MEMORY.md",
+            "~/.openclaw/workspace/docs/formal-doc.md",
+            "~/.openclaw/workspace/projects/project-decision.md",
+            "~/.openclaw/workspace/chats/casual-chat.md",
+            "~/.openclaw/workspace/memory/session-log.md"
         ]
         
         for filepath in test_files:

@@ -20,11 +20,12 @@ if workspace not in sys.path:
 
 from fmem import MemoryRetrieval
 
-# Configuration
-MEMORY_DIR = os.path.join(os.environ.get('FMEM_WORKSPACE', '/home/luis/.openclaw/workspace'), 'memory')
-MEMORY_MD_PATH = os.path.join(os.environ.get('FMEM_WORKSPACE', '/home/luis/.openclaw/workspace'), 'MEMORY.md')
-NOTES_DIR = os.path.join(os.environ.get('FMEM_WORKSPACE', '/home/luis/.openclaw/workspace'), 'notes')
-PERSONAS_DIR = os.path.join(os.environ.get('FMEM_WORKSPACE', '/home/luis/.openclaw/workspace'), 'PERSONAS')
+# Configuration - uses FMEM_WORKSPACE env var, defaults to ~/.openclaw/workspace
+_DEFAULT_WORKSPACE = os.path.expanduser('~/.openclaw/workspace')
+MEMORY_DIR = os.path.join(os.environ.get('FMEM_WORKSPACE', _DEFAULT_WORKSPACE), 'memory')
+MEMORY_MD_PATH = os.path.join(os.environ.get('FMEM_WORKSPACE', _DEFAULT_WORKSPACE), 'MEMORY.md')
+NOTES_DIR = os.path.join(os.environ.get('FMEM_WORKSPACE', _DEFAULT_WORKSPACE), 'notes')
+PERSONAS_DIR = os.path.join(os.environ.get('FMEM_WORKSPACE', _DEFAULT_WORKSPACE), 'PERSONAS')
 INDEXED_TIME_FILE = os.path.expanduser('~/.openclaw/memory/.last_indexed')
 SCAN_DELAY = int(os.environ.get('FMEM_SCAN_DELAY', '1800'))  # 30 minutes default
 
@@ -181,7 +182,7 @@ def main():
     print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Starting enhanced memory indexer with location ranking...")
     
     # Change to workspace directory for relative path handling
-    workspace = os.environ.get('FMEM_WORKSPACE', '/home/luis/.openclaw/workspace')
+    workspace = os.environ.get('FMEM_WORKSPACE', _DEFAULT_WORKSPACE)
     os.chdir(workspace)
     
     # Initialize memory system

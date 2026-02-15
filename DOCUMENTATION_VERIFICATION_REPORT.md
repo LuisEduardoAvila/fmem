@@ -2,8 +2,6 @@
 
 **Date:** 2026-02-15  
 **Version Reviewed:** 3.0.0  
-**Location:** /home/luis/.openclaw/workspace/DarthSpud
-
 ---
 
 ## 📊 Documentation Quality Score: 88/100
