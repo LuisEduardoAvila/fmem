@@ -15,7 +15,8 @@ Semantic memory search using FAISS embeddings, optimized for low-resource system
 ## ✨ Key Features
 
 - **Chunk-Level Indexing** - Splits markdown by `##` headings for precise retrieval
-- **Multi-Factor Ranking** - Semantic (50%) + Recency (30%) + Location (20%)
+- **Multi-Factor Ranking** - Semantic (50%) + Recency (30%) + Location (20%)  
+  **Note:** If recency + location weights exceed 1.0, they are automatically normalized to maintain proportions.
 - **Zero Cloud Costs** - Local Ollama embeddings, no external APIs
 - **Privacy First** - 100% local, no data leaves your machine
 - **Memory Tags** - Clear `<retrieved_memory>` context markers
@@ -188,7 +189,8 @@ The agent reads `AGENTS.md` on every session startup, which includes instruction
 2. **Search fmem automatically** — Uses `auto_recall()` when triggers detected
 3. **Inject context naturally** — Results appear in conversation without technical tags
 
-> **Note:** The agent integration is automatic because fmem is located at `~/.openclaw/workspace/DarthSpud/fmem/` which is in the agent's workspace. The agent reads `AGENTS.md` automatically.
+> **Note:** The agent integration is automatic because fmem is located at `~/.openclaw/workspace/DarthSpud/fmem/` which is in the agent's workspace. The agent reads `AGENTS.md` automatically.  
+> **Note:** AGENTS.md is located in your workspace root (`~/.openclaw/workspace/`), not the fmem directory.
 
 ### Test Commands (Verify It's Working)
 
@@ -646,10 +648,10 @@ Run the test suite to verify installation:
 ```bash
 cd ~/.openclaw/workspace/DarthSpud
 python3 -m pytest tests/ -v
-# Or run individual tests:
-python3 tests/test_chunking.py
-python3 tests/test_recency.py
-python3 tests/test_location_ranking.py
+# Or individual tests:
+python3 -m pytest tests/test_chunking.py -v
+python3 -m pytest tests/test_recency.py -v
+python3 -m pytest tests/test_location_ranking.py -v
 ```
 
 Expected output:
@@ -671,10 +673,7 @@ OK
 
 ```bash
 # Run specific test file
-python3 tests/test_chunking.py
-
-# Run with verbose output
-python3 tests/test_chunking.py -v
+python3 -m pytest tests/test_chunking.py -v
 
 # Run all tests with pytest
 python3 -m pytest tests/ -v
