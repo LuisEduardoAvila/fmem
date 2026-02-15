@@ -957,13 +957,12 @@ OpenClaw offers several memory solutions. Here's how fmem compares:
 | Feature | QMD Plugin | fmem |
 |---------|------------|------|
 | **Backend** | SQLite + `node-llama-cpp` | FAISS + SQLite |
-| **Search** | **BM25 + Vector + Rerank** ❌ No | Chunk-level semantic + recency + location |
+| **Search** | **BM25 + Vector + Rerank** | Chunk-level semantic + recency + location |
 | **Embeddings** | Local GGUF (auto-download) | Ollama (`nomic-embed-text`) |
 | **Auto-index** | ✅ Yes (`qmd update`) | ❌ Manual / cron |
 | **Memory** | ~0.6GB GGUF models | ~0 memory (Ollama external) |
 | **Chunking** | Unknown | ✅ Markdown sections |
 | **Recency/Location** | Unknown | ✅ Built-in weights |
-| **Status** | 🧪 Experimental | ✅ Stable |
 
 **Best for:**
 - **QMD:** Want hybrid search (text + semantic), automatic indexing, no Ollama daemon
