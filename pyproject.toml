@@ -44,10 +44,10 @@ gpu = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/LuisEduardoAvila/DarthSpudFmem"
-Documentation = "https://github.com/LuisEduardoAvila/DarthSpudFmem#readme"
-Repository = "https://github.com/LuisEduardoAvila/DarthSpudFmem"
-Issues = "https://github.com/LuisEduardoAvila/DarthSpudFmem/issues"
+Homepage = "https://github.com/LuisEduardoAvila/fmem"
+Documentation = "https://github.com/LuisEduardoAvila/fmem#readme"
+Repository = "https://github.com/LuisEduardoAvila/fmem"
+Issues = "https://github.com/LuisEduardoAvila/fmem/issues"
 
 [tool.setuptools.packages.find]
 where = ["."]

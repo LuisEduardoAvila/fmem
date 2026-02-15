@@ -1,7 +1,7 @@
 # fmem — FAISS Memory Search - OpenClaw Integrated
 
 [![Security](https://img.shields.io/badge/security-hardened-brightgreen.svg)](SECURITY.md)
-[![Version](https://img.shields.io/badge/version-3.0.0-blue.svg)](https://github.com/LuisEduardoAvila/DarthSpudFmem)
+[![Version](https://img.shields.io/badge/version-3.0.0-blue.svg)](https://github.com/LuisEduardoAvila/fmem)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
 Semantic memory search using FAISS embeddings, optimized for low-resource systems with zero cloud dependencies.
@@ -103,8 +103,8 @@ python3 -m fmem.cli health
 
 ```bash
 # Clone the repository
-git clone https://github.com/LuisEduardoAvila/DarthSpudFmem.git
-cd DarthSpudFmem
+git clone https://github.com/LuisEduardoAvila/fmem.git
+cd fmem
 
 # Run the installation script
 ./docs/install.sh
@@ -330,8 +330,8 @@ Follow this step-by-step guide from zero to fully working fmem:
 ### Phase 2: Install fmem (Required)
 - [ ] **Clone repository**
   ```bash
-  git clone https://github.com/LuisEduardoAvila/DarthSpudFmem.git
-  cd DarthSpudFmem
+  git clone https://github.com/LuisEduardoAvila/fmem.git
+  cd fmem
   ```
 
 - [ ] **Run install script (recommended)**

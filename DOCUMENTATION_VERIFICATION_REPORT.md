@@ -179,7 +179,7 @@ Missing elements:
 | SECURITY.md badge | SECURITY.md | ✅ Valid |
 | Version badge | GitHub repo | ✅ Valid |
 | License badge | LICENSE | ✅ Valid |
-| GitHub repo link | LuisEduardoAvila/DarthSpudFmem | ✅ Valid format |
+| GitHub repo link | LuisEduardoAvila/fmem | ✅ Valid format |
 | RELATED_WORK.md reference | RELATED_WORK.md | ✅ Valid |
 | install.sh | docs/install.sh | ✅ Valid |
 

@@ -22,7 +22,7 @@ Thank you for your interest in contributing to fmem! This document provides guid
 ```bash
 # Clone your fork
 git clone https://github.com/YOUR_USERNAME/DarthSpudFmem.git
-cd DarthSpudFmem
+cd fmem
 
 # Create virtual environment (recommended)
 python3 -m venv venv
