@@ -367,6 +367,9 @@ class ConfigManager:
     # Maximum query length
     MAX_QUERY_LENGTH = 1000
     
+    # Maximum embedding content size (1MB)
+    MAX_EMBEDDING_SIZE = 1024 * 1024
+    
     # Maximum batch size
     MAX_BATCH_SIZE = 100
     
@@ -634,14 +637,42 @@ class _LRUCache:
         self.cache.move_to_end(key)
         return self.cache[key]
     
+    def __contains__(self, key: str) -> bool:
+        """Check if key is in cache (supports 'in' operator)."""
+        if key not in self.cache:
+            return False
+        # Check if expired
+        if self._is_expired(key):
+            self._evict(key)
+            return False
+        return True
+    
+    def __getitem__(self, key: str) -> np.ndarray:
+        """Get item using dict-style access (cache[key])."""
+        value = self.get(key)
+        if value is None:
+            raise KeyError(key)
+        return value
+    
+    def __setitem__(self, key: str, value: np.ndarray) -> None:
+        """Set item using dict-style access (cache[key] = value)."""
+        self.put(key, value)
+    
     def put(self, key: str, value: np.ndarray) -> None:
         """
-        Add item to cache with LRU eviction.
+        Add item to cache with LRU eviction and memory pressure checks.
         
         Args:
             key: Cache key (text hash)
             value: Embedding array
         """
+        # Check memory pressure before adding
+        if self._is_memory_pressure_high():
+            # Evict more aggressively under memory pressure
+            while len(self.cache) > int(self.maxsize * 0.7):
+                oldest_key = next(iter(self.cache))
+                self._evict(oldest_key)
+        
         # Evict expired entries if cache is full
         while len(self.cache) >= self.maxsize:
             oldest_key = next(iter(self.cache))
@@ -650,6 +681,36 @@ class _LRUCache:
         # Add new entry
         self.cache[key] = value
         self.timestamps[key] = time.time()
+    
+    def _is_memory_pressure_high(self, threshold_percent: float = 0.85) -> bool:
+        """
+        Check if system memory pressure is high.
+        
+        Args:
+            threshold_percent: Memory usage threshold (0.0-1.0)
+            
+        Returns:
+            True if memory pressure is high
+        """
+        try:
+            import psutil
+            mem_info = psutil.virtual_memory()
+            return mem_info.percent >= (threshold_percent * 100)
+        except ImportError:
+            # If psutil not available, check using /proc/meminfo
+            try:
+                with open('/proc/meminfo', 'r') as f:
+                    for line in f:
+                        if line.startswith('MemAvailable:'):
+                            available_kb = int(line.split()[1])
+                            total_kb = int(open('/proc/meminfo').read().split('\n')[0].split()[1])
+                            used_percent = 100 - (available_kb / total_kb) * 100
+                            return used_percent >= (threshold_percent * 100)
+            except Exception:
+                pass
+            
+            # Default to no pressure if we can't determine
+            return False
     
     def _evict(self, key: str) -> None:
         """Evict a single key from cache."""
@@ -740,6 +801,132 @@ def sanitize_path(filepath: str, base_dir: Optional[str] = None, config: ConfigM
     except (OSError, ValueError) as e:
         logger.warning(f"Invalid path '{filepath}': {e}")
         return None
+
+
+def is_safe_symlink(filepath: str, allowed_dirs: List[str] = None, config: ConfigManager = None) -> Tuple[bool, str]:
+    """
+    Check if a symlink is safe to follow.
+    
+    Args:
+        filepath: Path to check
+        allowed_dirs: List of allowed base directories
+        config: ConfigManager instance
+        
+    Returns:
+        Tuple of (is_safe: bool, reason: str)
+    """
+    if config is None:
+        config = CONFIG
+    
+    if allowed_dirs is None:
+        # Default allowed directories
+        allowed_dirs = [config.data_dir]
+    
+    try:
+        # Check if path is a symlink
+        if os.path.islink(filepath):
+            # Get the resolved path
+            resolved_path = os.path.realpath(filepath)
+            
+            # Check if resolved path is within allowed directories
+            for allowed_dir in allowed_dirs:
+                allowed_dir_resolved = os.path.realpath(allowed_dir)
+                try:
+                    # Check if resolved path is within allowed directory
+                    Path(resolved_path).relative_to(allowed_dir_resolved)
+                    return True, "Safe symlink within allowed directory"
+                except ValueError:
+                    # Not within this allowed directory, check next
+                    continue
+            
+            return False, f"Symlink resolves outside allowed directories"
+        
+        # Not a symlink, considered safe
+        return True, "Not a symlink"
+        
+    except OSError as e:
+        return False, f"Cannot resolve path: {e}"
+    except Exception as e:
+        return False, f"Error checking symlink: {e}"
+
+
+# ============================================================================
+# Rate Limiter for API Calls
+# ============================================================================
+
+class RateLimiter:
+    """
+    Thread-safe rate limiter using sliding window algorithm.
+    
+    Prevents Ollama API abuse by limiting requests within a time window.
+    """
+    
+    def __init__(self, max_requests: int = 10, window_seconds: int = 60):
+        """
+        Initialize rate limiter.
+        
+        Args:
+            max_requests: Maximum number of requests per window
+            window_seconds: Time window in seconds (default 60s)
+        """
+        self.max_requests = max_requests
+        self.window_seconds = window_seconds
+        self.requests = []  # List of request timestamps
+        self._lock = None  # Simplified - no threading in this codebase
+    
+    def _cleanup_expired(self) -> None:
+        """Remove expired request timestamps."""
+        current_time = time.time()
+        cutoff = current_time - self.window_seconds
+        self.requests = [req_time for req_time in self.requests if req_time > cutoff]
+    
+    def is_allowed(self) -> bool:
+        """
+        Check if a new request is allowed.
+        
+        Returns:
+            True if request is allowed, False if rate limited
+        """
+        self._cleanup_expired()
+        
+        if len(self.requests) >= self.max_requests:
+            return False
+        
+        return True
+    
+    def record_request(self) -> bool:
+        """
+        Record a new request.
+        
+        Returns:
+            True if request was recorded, False if rate limited
+        """
+        if not self.is_allowed():
+            return False
+        
+        self.requests.append(time.time())
+        return True
+    
+    def get_wait_time(self) -> float:
+        """
+        Get time to wait until next request is allowed.
+        
+        Returns:
+            Seconds to wait (0 if allowed now)
+        """
+        self._cleanup_expired()
+        
+        if len(self.requests) < self.max_requests:
+            return 0.0
+        
+        # Calculate wait time based on oldest request
+        oldest_request = min(self.requests)
+        wait_time = (oldest_request + self.window_seconds) - time.time()
+        return max(0.0, wait_time)
+    
+    def reset(self) -> None:
+        """Clear all request records."""
+        self.requests.clear()
 
 
 # ============================================================================
@@ -891,6 +1078,8 @@ class MemoryRetrieval:
         self.doc_metadata = []  # List of {filepath, content, last_modified}
         self.db_path = db_path or self.config.sqlite_path
         self.conn = None
+        # Rate limiter for Ollama API (10 requests per 60 seconds)
+        self.rate_limiter = RateLimiter(max_requests=10, window_seconds=60)
         # Embedding cache with TTL (1 hour) and LRU eviction (max 10000 entries)
         self.embedding_cache = _LRUCache(maxsize=10000, ttl=3600)
         
@@ -954,6 +1143,10 @@ class MemoryRetrieval:
                 chunk_index INTEGER,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
+        """)
+        # Create index for parent_file to speed up chunk lookups
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_parent_file ON chunks(parent_file)
         """)
         self.conn.commit()
     
@@ -1179,14 +1372,21 @@ class MemoryRetrieval:
         return enhanced_results
     
     def _get_embedding(self, text: str) -> Optional[np.ndarray]:
-        """Get embedding from cache or generate new one."""
+        """Get embedding from cache or generate new one with rate limiting."""
         text_hash = hashlib.md5(text.encode()).hexdigest()
         
         if text_hash in self.embedding_cache:
             return self.embedding_cache[text_hash]
         
+        # Check rate limit before making API call
+        if not self.rate_limiter.is_allowed():
+            logger.warning("Rate limit exceeded for embedding generation")
+            return None
+        
         embedding = self.ollama.generate_embeddings([text])
         if embedding is not None:
+            # Record the successful request
+            self.rate_limiter.record_request()
             self.embedding_cache[text_hash] = embedding[0]
         
         return embedding[0] if embedding is not None else None
@@ -1332,6 +1532,12 @@ class MemoryRetrieval:
             
             filepath = safe_path
             
+            # Check symlink safety
+            is_safe, reason = is_safe_symlink(filepath, config=self.config)
+            if not is_safe:
+                logger.error(f"Unsafe symlink detected: {reason}")
+                return False
+            
             # Check file extension
             if not self.config.is_valid_extension(filepath):
                 logger.error(f"Invalid file extension: {filepath}")
@@ -1372,6 +1578,11 @@ class MemoryRetrieval:
             
             if len(content) > self.config.MAX_FILE_SIZE:
                 logger.error("Content too large")
+                return False
+            
+            # Verify content doesn't exceed embedding size limit
+            if len(content) > self.config.MAX_EMBEDDING_SIZE:
+                logger.error(f"Content exceeds embedding size limit: {len(content)} > {self.config.MAX_EMBEDDING_SIZE}")
                 return False
             
             # Generate embedding for main document

@@ -9,7 +9,7 @@ description = "Local FAISS-based memory search with chunk-level indexing for Ope
 readme = "README.md"
 license = {text = "MIT"}
 authors = [
-    {name = "Luis Eduardo Avila", email = "your.email@example.com"}
+    {name = "Luis Eduardo Avila", email = "luiseduardo.avila@gmail.com"}
 ]
 keywords = ["openclaw", "memory", "faiss", "semantic-search", "embeddings", "privacy"]
 classifiers = [

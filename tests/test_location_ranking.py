@@ -12,6 +12,11 @@ workspace = os.path.dirname(os.path.abspath(__file__))
 if workspace not in sys.path:
     sys.path.insert(0, workspace)
 
+# Add parent directory for fmem module
+parent_dir = os.path.dirname(workspace)
+if parent_dir not in sys.path:
+    sys.path.insert(0, parent_dir)
+
 from fmem import MemoryRetrieval
 
 def test_location_ranking():

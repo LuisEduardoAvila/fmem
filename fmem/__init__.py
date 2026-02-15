@@ -13,18 +13,18 @@ Example:
 __version__ = "3.0.0"
 __author__ = "Luis Eduardo Avila"
 
-# Lazy imports to avoid circular dependencies
-def MemoryRetrieval(*args, **kwargs):
-    from .fmem import MemoryRetrieval as _MR
-    return _MR(*args, **kwargs)
-
-def chunk_markdown(*args, **kwargs):
-    from .fmem import chunk_markdown as _cm
-    return _cm(*args, **kwargs)
-
-def ChunkMetadata(*args, **kwargs):
-    from .fmem import ChunkMetadata as _CM
-    return _CM(*args, **kwargs)
+# Expose the main classes directly (not wrapped)
+from .fmem import MemoryRetrieval
+from .fmem import chunk_markdown
+from .fmem import ChunkMetadata
+from .fmem import slugify
+from .fmem import extract_keywords
+from .fmem import infer_category
+from .fmem import sanitize_path
+from .fmem import is_safe_symlink
+from .fmem import RateLimiter
+from .fmem import ConfigManager
+from .fmem import _LRUCache
 
 def auto_recall(*args, **kwargs):
     from .fmem_integration import auto_recall as _ar
@@ -38,6 +38,14 @@ __all__ = [
     'MemoryRetrieval',
     'chunk_markdown',
     'ChunkMetadata',
+    'slugify',
+    'extract_keywords',
+    'infer_category',
     'auto_recall',
     'format_results',
+    'sanitize_path',
+    'is_safe_symlink',
+    'RateLimiter',
+    'ConfigManager',
+    '_LRUCache',
 ]

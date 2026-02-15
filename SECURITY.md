@@ -38,7 +38,7 @@ fmem implements multiple layers of security to protect your data:
 If you discover a security vulnerability:
 
 1. **Do NOT open a public issue**
-2. Email details to: [security@example.com] (replace with actual contact)
+2. Email details to: luiseduardo.avila@gmail.com
 3. Include:
    - Description of the vulnerability
    - Steps to reproduce
