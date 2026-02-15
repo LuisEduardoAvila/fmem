@@ -86,6 +86,14 @@ python3 -m fmem.cli reset
 python3 -m fmem.cli health
 ```
 
+### See It In Action
+
+**Want to see how automatic memory works?** Check out [EXAMPLES.md](EXAMPLES.md) for real-world workflows:
+
+- 🎬 Movie recommendations based on your favorites
+- 🏋️ Fitness schedule + calendar integration
+- 💻 Project context and next-step suggestions
+
 ---
 
 ## 📋 Installation
