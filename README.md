@@ -22,6 +22,35 @@ Semantic memory search using FAISS embeddings, optimized for low-resource system
 
 ---
 
+## 🫱 What Makes fmem Unique
+
+Most memory solutions retrieve **whole documents**. fmem retrieves **relevant sections**.
+
+| Feature | Others | fmem |
+|---------|--------|------|
+| **Indexing Granularity** | Whole documents | Markdown sections (## headings) |
+| **Ranking Factors** | Semantic only | Semantic + Recency + Location |
+| **Cost** | $0.001-0.005/query | Zero |
+| **Offline** | ❌ | ✅ |
+| **Context Window** | Inflated | Optimized (~57% reduction) |
+| **Sub-Agent Access** | ❌ Restricted | ✅ Works via `exec` |
+
+**The Innovation:**
+
+1. **Section-Aware Embeddings** — Each `##` heading becomes its own searchable unit with metadata (keywords, category, tokens)
+
+2. **Multi-Factor Ranking** — Not just "does this document match?" but "is this recent? from an important folder?"
+
+3. **Session Intelligence** — 5-minute TTL deduplication prevents redundant results, adaptive previews based on result count
+
+4. **Zero Infrastructure** — Single-node FAISS + SQLite, no containerization, no cloud dependencies
+
+**Built differently:** While tools like Pinecone/Chroma focus on scale, fmem focuses on **precision for personal knowledge management**.
+
+See [RELATED_WORK.md](RELATED_WORK.md) for academic context and comparison with other systems.
+
+---
+
 ## 🚀 Quick Start
 
 ### Basic Search
@@ -502,6 +531,8 @@ To share this skill:
 ## 🆚 Comparison with Other Memory Solutions
 
 OpenClaw offers several memory solutions. Here's how fmem compares:
+
+*For academic context and technical details, see [RELATED_WORK.md](RELATED_WORK.md)*
 
 ### vs. Built-in Memory (Core Plugin)
 
