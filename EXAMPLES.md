@@ -16,45 +16,116 @@ Real-world workflows demonstrating fmem's automatic memory recall.
 **What happens:**
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│  1. DETECT     → "remember" + "movies" (AGENTS.md trigger)  │
-│  2. PARSE      → Extract: ["Gladiator", "Idiocracy",         │
-│                          "Tour de Pharmacy"]                  │
-│  3. WRITE      → memory/2026-02-15.md                       │
-│  4. INDEX      → fmem.add_document() → FAISS + SQLite        │
-│  5. CONFIRM    → "Got it! I'll remember that."              │
-└─────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────┐
+│  STEP 1: You Send Message                                       │
+│  ━━━━━━━━━━━━━━━━━━━━━━━━━                                      │
+│  You → OpenClaw → "Remember my favorite movies are..."          │
+└────────────────────────────────┬────────────────────────────────┘
+                                 │
+                                 ▼
+┌─────────────────────────────────────────────────────────────────┐
+│  STEP 2: Trigger Detection                                      │
+│  ━━━━━━━━━━━━━━━━━━━━━━                                         │
+│  I run: should_search("Remember my favorite movies...")         │
+│  Result: True ✓ ("remember" + "movies" matches AGENTS.md)         │
+└────────────────────────────────┬────────────────────────────────┘
+                                 │
+                                 ▼
+┌─────────────────────────────────────────────────────────────────┐
+│  STEP 3: Parse & Store                                          │
+│  ━━━━━━━━━━━━━━━━━━━━                                           │
+│  I extract: ["Gladiator", "Idiocracy", "Tour de Pharmacy"]       │
+│                                                                 │
+│  I write to: memory/2026-02-15.md                               │
+│  ## Movie Preferences - 2026-02-15                              │
+│  **Favorite Movies:**                                           │
+│  - Gladiator                                                    │
+│  - Idiocracy                                                    │
+│  - Tour de Pharmacy                                             │
+└────────────────────────────────┬────────────────────────────────┘
+                                 │
+                                 ▼
+┌─────────────────────────────────────────────────────────────────┐
+│  STEP 4: Index with fmem                                        │
+│  ━━━━━━━━━━━━━━━━━━━━━━                                         │
+│  fmem.add_document("memory/2026-02-15.md", chunk_by_sections)   │
+│                                                                 │
+│  Indexed: → FAISS vector index                                    │
+│           → SQLite metadata database                              │
+│  (Now searchable for future queries)                              │
+└────────────────────────────────┬────────────────────────────────┘
+                                 │
+                                 ▼
+┌─────────────────────────────────────────────────────────────────┐
+│  STEP 5: I Confirm                                              │
+│  ━━━━━━━━━━━━━━━━━                                              │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
-**Stored in memory:**
-```markdown
-## Movie Preferences - 2026-02-15
-
-**Favorite Movies:**
-- Gladiator
-- Idiocracy
-- Tour de Pharmacy
-
-**Genres:** Epic historical drama, intelligent satirical comedy
-```
+**I respond:**
+> "Got it! I've saved your favorite movies: Gladiator, Idiocracy, and Tour de Pharmacy. I'll remember these for future recommendations."
 
 ---
 
-### Step 2: Get Recommendations
+### Step 2: Get Recommendations (How It Actually Works)
 
 **Later you say:**
 > "Suggest a movie for my watchlist"
 
-**What happens:**
+**Here's the actual flow:**
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│  1. DETECT     → "movie" + "suggest" → should_search() True  │
-│  2. RECALL     → auto_recall("suggest movie watchlist")        │
-│  3. FIND       → [2026-02-15.md#Movie Preferences]            │
-│  4. ANALYZE    → "likes: epic dramas + satirical comedy"      │
-│  5. SUGGEST    → Based on your taste profile...             │
-└─────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────┐
+│  STEP 1: You Send Message                                       │
+│  ━━━━━━━━━━━━━━━━━━━━━━━━━                                      │
+│  You → OpenClaw → "Suggest a movie for my watchlist"            │
+└────────────────────────────────┬────────────────────────────────┘
+                                 │
+                                 ▼
+┌─────────────────────────────────────────────────────────────────┐
+│  STEP 2: I Receive Your Message                                 │
+│  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━                                 │
+│  What I see: "Suggest a movie for my watchlist"                 │
+│  (Just your text. Nothing else yet.)                            │
+└────────────────────────────────┬────────────────────────────────┘
+                                 │
+                                 ▼
+┌─────────────────────────────────────────────────────────────────┐
+│  STEP 3: I Check AGENTS.md (Every Session)                      │
+│  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━                              │
+│  AGENTS.md tells me: "Check if memory is relevant"                │
+│                                                                 │
+│  I run: should_search("Suggest a movie...")                     │
+│  Result: True ✓ (because "movie" + "suggest" match triggers)    │
+└────────────────────────────────┬────────────────────────────────┘
+                                 │
+                                 ▼
+┌─────────────────────────────────────────────────────────────────┐
+│  STEP 4: I CALL fmem MYSELF                                     │
+│  ━━━━━━━━━━━━━━━━━━━━━━━━━━                                     │
+│  I execute: auto_recall("suggest movie watchlist", top_k=3)     │
+│                                                                 │
+│  fmem searches FAISS index...                                   │
+│  Returns: [2026-02-15.md#Movie Preferences]                     │
+│           ("Gladiator, Idiocracy, Tour de Pharmacy")            │
+└────────────────────────────────┬────────────────────────────────┘
+                                 │
+                                 ▼
+┌─────────────────────────────────────────────────────────────────┐
+│  STEP 5: I NOW Have Context                                     │
+│  ━━━━━━━━━━━━━━━━━━━━━━━━━                                      │
+│  My internal state:                                             │
+│  • User asked for movie suggestions                             │
+│  • I found: Favorite movies = Gladiator, Idiocracy...           │
+│  • I "remember" your preferences                                  │
+└────────────────────────────────┬────────────────────────────────┘
+                                 │
+                                 ▼
+┌─────────────────────────────────────────────────────────────────┐
+│  STEP 6: I Respond                                              │
+│  ━━━━━━━━━━━━━━━━━                                              │
+│  Based on the fmem results I just retrieved:                    │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
 **I respond:**
@@ -63,6 +134,8 @@ Real-world workflows demonstrating fmem's automatic memory recall.
 > 1. **The Big Short** - Smart finance comedy like Idiocracy
 > 2. **Dune** - Epic sci-fi drama
 > 3. **Don't Look Up** - Satirical comedy with serious themes
+
+**Key Point:** I **actively decide** to search fmem based on trigger words. The memory doesn't appear automatically—I retrieve it when your message matches the patterns in AGENTS.md.
 
 ---
 
@@ -143,6 +216,53 @@ Real-world workflows demonstrating fmem's automatic memory recall.
 
 4. **Query context:**
    > What should I focus on this quarter?
+
+---
+
+## 🏗️ How fmem Works (Architecture)
+
+### Current Implementation: Option 1 (AGENTS.md)
+
+**This is what you just saw above.** The flow is:
+
+```
+You → Message → AGENTS.md Check → should_search()? 
+                                      ↓
+                             True: I call auto_recall()
+                                      ↓
+                              Results added to my context
+                                      ↓
+                              I respond with memory
+```
+
+**Key Characteristic:** **I decide when to search.** Your message triggers the check, but I actively call fmem only when patterns match.
+
+### Future: Option B (Automatic Hook) - Planned
+
+**Different approach:** OpenClaw would search **before** I see your message:
+
+```
+You → Message → OpenClaw Auto-Searches fmem → Injects results
+                                              ↓
+                              I receive message + context
+                                              ↓
+                              I "just know" without deciding
+```
+
+**Key Difference:** **Automatic injection.** Every message gets searched, results injected if relevant. I don't decide—it's automatic.
+
+### Comparison
+
+| Aspect | Option 1 (Current) | Option B (Future) |
+|--------|-------------------|-------------------|
+| **Who searches?** | I search after seeing message | OpenClaw searches before I see it |
+| **When does memory appear?** | After I decide to call fmem | Before I process message |
+| **Do I "just know"?** | ❌ No, I actively retrieve | ✅ Yes, it's in my context |
+| **Misses context?** | Possible if no trigger | Catches everything |
+| **Speed** | Fast | Slightly slower |
+| **Implementation** | ✅ Live now | 📋 Planned (Phase 2B) |
+
+**Bottom Line:** Option 1 requires me to **actively retrieve** when triggers match. Option B would make memory **automatically present** in every conversation.
 
 ---
 
