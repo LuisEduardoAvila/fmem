@@ -952,6 +952,23 @@ OpenClaw offers several memory solutions. Here's how fmem compares:
 
 **Best for:** LanceDB for automatic memory capture; fmem for more control and lower resource usage.
 
+### vs. QMD (OpenClaw Experimental)
+
+| Feature | QMD Plugin | fmem |
+|---------|------------|------|
+| **Backend** | SQLite + `node-llama-cpp` | FAISS + SQLite |
+| **Search** | **BM25 + Vector + Rerank** ❌ No | Chunk-level semantic + recency + location |
+| **Embeddings** | Local GGUF (auto-download) | Ollama (`nomic-embed-text`) |
+| **Auto-index** | ✅ Yes (`qmd update`) | ❌ Manual / cron |
+| **Memory** | ~0.6GB GGUF models | ~0 memory (Ollama external) |
+| **Chunking** | Unknown | ✅ Markdown sections |
+| **Recency/Location** | Unknown | ✅ Built-in weights |
+| **Status** | 🧪 Experimental | ✅ Stable |
+
+**Best for:**
+- **QMD:** Want hybrid search (text + semantic), automatic indexing, no Ollama daemon
+- **fmem:** Want chunk-level precision, multi-factor ranking, sub-agent access, trigger control
+
 ### fmem Unique Advantages
 
 1. **Zero Cost** - No external APIs needed
@@ -973,8 +990,9 @@ OpenClaw offers several memory solutions. Here's how fmem compares:
 
 ### When to Choose Alternatives
 
-⚡ Built-in Memory: Quick setup, no infrastructure
-⚡ LanceDB: Automatic memory capture without manual indexing
+⚡ **Built-in Memory:** Quick setup, no infrastructure  
+⚡ **LanceDB:** Automatic memory capture without manual indexing  
+⚡ **QMD:** Hybrid search (BM25 + vector), auto-indexing, no Ollama needed
 
 ---
 
