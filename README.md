@@ -3,6 +3,8 @@
 [![Security](https://img.shields.io/badge/security-hardened-brightgreen.svg)](SECURITY.md)
 [![Version](https://img.shields.io/badge/version-3.0.0-blue.svg)](https://github.com/LuisEduardoAvila/fmem)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![Open Source](https://img.shields.io/badge/open%20source-%E2%9C%93-brightgreen.svg)]()
+[![Discussions](https://img.shields.io/badge/discussions-enabled-blue.svg)](https://github.com/LuisEduardoAvila/fmem/discussions)
 
 Semantic memory search using FAISS embeddings, optimized for low-resource systems with zero cloud dependencies.
 
