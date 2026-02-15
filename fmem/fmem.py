@@ -23,6 +23,24 @@ Usage:
 
 __version__ = "3.0.0"
 
+# Standard library imports
+import json
+import logging
+import os
+import sys
+import re
+import time
+import hashlib
+import datetime
+from pathlib import Path
+from typing import List, Dict, Optional, Tuple, Set
+from contextlib import contextmanager
+from collections import OrderedDict
+
+# Configuration management with environment variable support
+import configparser
+from functools import lru_cache
+
 # ============================================================================
 # Chunk Metadata Schema
 # ============================================================================
@@ -314,22 +332,6 @@ def _create_chunk(filename: str, heading: str, content: str,
 import faiss
 import numpy as np
 import sqlite3
-import json
-import os
-import sys
-import logging
-import datetime
-import hashlib
-import re
-import time
-from pathlib import Path
-from typing import List, Dict, Optional, Tuple, Set
-from contextlib import contextmanager
-from collections import OrderedDict
-
-# Configuration management with environment variable support
-import configparser
-from functools import lru_cache
 
 # Try to import litellm and use nomic-embed-text model (served by local Ollama)
 try:
