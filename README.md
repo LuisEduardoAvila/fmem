@@ -8,6 +8,8 @@ Semantic memory search using FAISS embeddings, optimized for low-resource system
 
 **Production-hardened with OpenClaw chat integration, chunk-level indexing, and automatic memory recall.**
 
+> 🧠 *Persistent, contextual memory that feels natural.*
+
 ---
 
 ## ✨ Key Features
