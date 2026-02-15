@@ -919,6 +919,24 @@ To share this skill:
 
 ---
 
+## 🧠 Memory Philosophy: Which Tool When?
+
+Understanding the difference:
+
+| QMD | fmem |
+|-----|------|
+| **Index-like** | **Human-like** |
+| "Find decision #42 about AI projects" | "Remember I mentioned fitness goals?" |
+| Precise, factual retrieval | Associative, contextual recall |
+| Perfect for projects, decisions, IDs | Perfect for conversations, preferences, "we discussed..." |
+| Like a database query | Like talking to someone who knows you |
+
+**In Other Words:**
+- **QMD** = Good memory *tool* (projects, decisions, structured facts)
+- **fmem** = Good memory *replication* (human conversation style, context-aware)
+
+---
+
 ## 🆚 Comparison with Other Memory Solutions
 
 OpenClaw offers several memory solutions. Here's how fmem compares:
