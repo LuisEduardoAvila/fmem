@@ -166,6 +166,251 @@ python3 -c "from fmem import MemoryRetrieval; print('✓ fmem installed')"
 curl http://localhost:11434/api/tags | grep nomic-embed-text
 ```
 
+---
+
+## 🤖 Enable Agent Integration
+
+The agent integration is **automatic** — no code changes needed! Once fmem is installed, the AI agent will automatically recall your memories during conversations.
+
+### How It Works
+
+The agent reads `AGENTS.md` on every session startup, which includes instructions to:
+
+1. **Detect trigger phrases** — "remember", "recall", "what about", "my projects", etc.
+2. **Search fmem automatically** — Uses `auto_recall()` when triggers detected
+3. **Inject context naturally** — Results appear in conversation without technical tags
+
+> **Note:** The agent integration is automatic because fmem is located at `/home/luis/.openclaw/workspace/DarthSpud/fmem/` which is in the agent's workspace. The agent reads `AGENTS.md` automatically.
+
+### Test Commands (Verify It's Working)
+
+After installation, test agent integration with these commands:
+
+```bash
+# Test 1: Manual search (should return results if you have indexed files)
+python3 -c "
+from fmem import MemoryRetrieval
+m = MemoryRetrieval()
+print('✓ MemoryRetrieval initialized')
+print('  Documents indexed:', m.get_document_count())
+"
+
+# Test 2: Test Ollama embeddings (should return vector)
+python3 -c "
+import litellm
+response = litellm.embedding(
+    model='ollama/nomic-embed-text',
+    input=['test query'],
+    api_base='http://localhost:11434'
+)
+print('✓ Embeddings working')
+print('  Vector dimension:', len(response.data[0].embedding))
+"
+
+# Test 3: Test auto_recall integration function
+python3 -c "
+from fmem import auto_recall, format_results
+results = auto_recall('test query', top_k=3)
+print('✓ auto_recall function available')
+print('  Results type:', type(results).__name__)
+"
+```
+
+**Expected responses:**
+- ✓ MemoryRetrieval initialized — fmem is working
+- ✓ Embeddings working — Ollama connection good
+- ✓ auto_recall function available — Agent integration ready
+
+### What Triggers Automatic Recall
+
+The agent automatically searches your memory when you mention:
+
+| Trigger Patterns | Examples |
+|-----------------|----------|
+| **Memory words** | "remember", "recall", "what about" |
+| **Time references** | "last week", "previous", "before", "yesterday" |
+| **Personal topics** | "my projects", "my goals", "we discussed", "you mentioned" |
+| **Context domains** | "fitness", "movies", "work", "travel", "health" |
+
+**Example conversations that trigger recall:**
+- *"What did we discuss about my fitness routine last week?"*
+- *"Show me my Oracle projects"*
+- *"Remember that movie recommendation you gave me?"*
+- *"What were my goals for this month?"*
+
+### Expected First-Use Experience
+
+**First time you mention a memory trigger:**
+1. Agent detects trigger phrase
+2. Searches fmem automatically (you won't see this)
+3. Results injected into context (invisible to you)
+4. Agent responds with relevant information naturally
+
+**Example:**
+```
+You: "What did I work on last week?"
+Agent: "Last week you mentioned working on the fmem documentation and 
+        planning to add agent integration features. You also noted that 
+        the chunk-level indexing was working well for your use case."
+```
+
+> **No special commands needed** — just ask naturally!
+
+### Troubleshooting Agent Integration
+
+#### Agent not recalling memory?
+
+| Symptom | Cause | Solution |
+|---------|-------|----------|
+| "I don't see any memories" | No documents indexed | Run `python3 -m fmem.cli add /path/to/your/notes.md` |
+| "The agent doesn't mention my notes" | Trigger not detected | Use explicit words: "remember", "recall", "my projects" |
+| "Returns empty results" | fmem not initialized | Check `~/.openclaw/memory/` exists and has write permissions |
+| "Ollama connection errors" | Ollama not running | Start Ollama: `ollama serve` |
+| "Model not found errors" | Missing embedding model | Run `ollama pull nomic-embed-text` |
+| "Import errors" | fmem not in Python path | Ensure installed: `pip3 install -e /path/to/DarthSpud` |
+
+#### Debug agent integration:
+
+```bash
+# Check if AGENTS.md exists (required for automatic integration)
+cat /home/luis/.openclaw/workspace/AGENTS.md | grep -A 5 "Memory Recall"
+
+# Verify fmem is importable from agent's context
+python3 -c "from fmem import auto_recall; print('✓ auto_recall available')"
+
+# Check indexed documents
+python3 -m fmem.cli status
+
+# Test a search directly
+python3 -c "
+from fmem import MemoryRetrieval
+m = MemoryRetrieval()
+results = m.search('test query', top_k=3)
+print(f'Found {len(results)} results')
+for r in results:
+    print(f'  - {r.get(\"filepath\", \"unknown\")}')
+"
+```
+
+---
+
+## ✅ First Time User Checklist
+
+Follow this step-by-step guide from zero to fully working fmem:
+
+### Phase 1: Prerequisites (Required)
+- [ ] **Python 3.8+ installed**
+  ```bash
+  python3 --version  # Should show 3.8 or higher
+  ```
+  *If missing: `sudo apt-get install python3 python3-pip` (Ubuntu/Debian) or `brew install python3` (macOS)*
+
+- [ ] **Ollama installed and running**
+  ```bash
+  curl -fsSL https://ollama.com/install.sh | sh  # Install
+  ollama serve  # Start service (keep running)
+  ```
+
+- [ ] **Embedding model pulled**
+  ```bash
+  ollama pull nomic-embed-text
+  curl http://localhost:11434/api/tags | grep nomic-embed-text  # Verify
+  ```
+
+### Phase 2: Install fmem (Required)
+- [ ] **Clone repository**
+  ```bash
+  git clone https://github.com/LuisEduardoAvila/DarthSpudFmem.git
+  cd DarthSpudFmem
+  ```
+
+- [ ] **Run install script (recommended)**
+  ```bash
+  ./docs/install.sh
+  ```
+  *Or manually:*
+  ```bash
+  pip3 install -e .
+  mkdir -p ~/.openclaw/memory/
+  ```
+
+- [ ] **Verify installation**
+  ```bash
+  python3 -c "from fmem import MemoryRetrieval; print('✓ fmem installed')"
+  python3 -m fmem.cli health
+  ```
+
+### Phase 3: Index Your First Files (Required)
+- [ ] **Add at least one file to memory**
+  ```bash
+  # Create a test file
+  echo "# My First Memory
+  
+  ## Project Ideas
+  - Build a memory system
+  - Learn about embeddings
+  
+  ## Fitness Goals
+  - Run 5km daily
+  - Track calories" > ~/test_memory.md
+  
+  # Index it
+  python3 -m fmem.cli add ~/test_memory.md
+  ```
+
+- [ ] **Verify documents indexed**
+  ```bash
+  python3 -m fmem.cli status  # Should show 1+ documents
+  ```
+
+- [ ] **Test search works**
+  ```bash
+  python3 -m fmem.cli search "project ideas"  # Should find results
+  python3 -m fmem.cli search "fitness goals"  # Should find results
+  ```
+
+### Phase 4: Enable Agent Integration (Automatic)
+- [ ] **Verify agent can access fmem**
+  ```bash
+  python3 -c "from fmem import auto_recall; print('✓ Agent integration ready')"
+  ```
+  *This works automatically if fmem is installed in the workspace*
+
+- [ ] **Test with the agent**
+  - Start a chat with your agent
+  - Say: *"What did I work on?"* or *"Show my test memory"*
+  - Agent should recall content from your indexed files
+
+### Phase 5: Optional Enhancements
+- [ ] **Configuration file** (Optional — has good defaults)
+  ```bash
+  cp docs/fmem.conf ~/.openclaw/memory/fmem.conf
+  # Edit to customize: data_dir, ollama_url, etc.
+  ```
+
+- [ ] **GPU support** (Optional — for faster indexing)
+  ```bash
+  pip3 install faiss-gpu  # Only if you have NVIDIA GPU
+  ```
+
+- [ ] **Bulk index existing notes** (Optional)
+  ```bash
+  python3 -m fmem.cli add /path/to/notes/dir -r  # Recursive scan
+  ```
+
+- [ ] **Enhanced ranking** (Already enabled by default)
+  - No action needed — multi-factor ranking (semantic + recency + location) is active
+
+### What If You Skip Steps?
+
+| If you skip... | What happens | Impact |
+|----------------|--------------|--------|
+| **Indexing files** | Agent searches return empty | **High** — No memories to recall |
+| **Ollama setup** | Embeddings fail, can't add/search | **Critical** — fmem won't work |
+| **Configuration file** | Uses defaults | **Low** — Usually works fine |
+| **GPU support** | Indexing is slower | **Low** — CPU works, just slower |
+| **Enhanced ranking** | Already enabled | **None** — It's default |
+
 ### Troubleshooting
 
 | Issue | Solution |
@@ -175,6 +420,10 @@ curl http://localhost:11434/api/tags | grep nomic-embed-text
 | `No embedding model found` | Run `ollama pull nomic-embed-text` |
 | `Permission denied` | Use `--user` flag: `pip3 install --user -e .` |
 | `Python version error` | Upgrade to Python 3.8+ |
+| **Agent not recalling memory** | See [Troubleshooting Agent Integration](#troubleshooting-agent-integration) above |
+| **"No results found" when searching** | Add documents first: `python3 -m fmem.cli add /path/to/file.md` |
+| **"Ollama connection failed"** | Start Ollama: `ollama serve` and verify with `curl http://localhost:11434/api/tags` |
+| **"auto_recall not found"** | fmem not installed correctly — reinstall: `pip3 install -e /path/to/DarthSpud` |
 
 ### Optional: GPU Support
 
@@ -517,6 +766,55 @@ curl http://localhost:11434/api/tags
 ls -la ~/.openclaw/memory/
 chmod 755 ~/.openclaw/memory/
 ```
+
+### Agent Not Recalling Memory?
+
+**Quick diagnosis:**
+
+1. **Check fmem is installed:**
+   ```bash
+   python3 -c "from fmem import MemoryRetrieval; print('✓ fmem OK')"
+   ```
+
+2. **Check documents exist:**
+   ```bash
+   python3 -m fmem.cli status
+   # Should show: "Total documents: X" where X > 0
+   ```
+
+3. **Check Ollama is running:**
+   ```bash
+   curl http://localhost:11434/api/tags | grep nomic-embed-text
+   # Should return the model name
+   ```
+
+4. **Check auto_recall function:**
+   ```bash
+   python3 -c "from fmem import auto_recall; print('✓ auto_recall OK')"
+   ```
+
+**Common causes:**
+
+| Symptom | Likely Cause | Fix |
+|---------|--------------|-----|
+| Agent says "I don't see any memories" | No documents indexed | Add files: `python3 -m fmem.cli add /path/to/file.md` |
+| Agent ignores memory triggers | AGENTS.md not loaded | Verify fmem is in workspace at `/home/luis/.openclaw/workspace/DarthSpud/` |
+| "ImportError: No module named fmem" | fmem not in Python path | Reinstall: `pip3 install -e /path/to/DarthSpud` |
+| Search returns empty | Ollama not running | `ollama serve` |
+| Search returns empty | Wrong embedding model | `ollama pull nomic-embed-text` |
+| Agent recalls wrong/old info | Deduplication active | Wait 5 minutes or restart session |
+
+**Manual test:**
+```bash
+# Test the same function the agent uses
+python3 -c "
+from fmem import auto_recall, format_results
+results = auto_recall('your query here', top_k=3)
+print(format_results(results))
+"
+```
+
+If this works but agent doesn't recall, check that AGENTS.md exists in your workspace root and contains the "Memory Recall with fmem" section.
 
 ### Embeddings Slow?
 
