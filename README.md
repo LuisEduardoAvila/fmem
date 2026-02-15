@@ -85,32 +85,91 @@ python3 /path/to/fmem/fmem.py health
 
 ## 📋 Installation
 
-### Prerequisites
+### Quick Install (Recommended)
 
-1. **Python 3.8+** installed
+```bash
+# Clone the repository
+git clone https://github.com/LuisEduardoAvila/DarthSpudFmem.git
+cd DarthSpudFmem
 
-2. **Required packages:**
-   ```bash
-   pip install faiss-cpu
-   pip install litellm
-   ```
+# Run the installation script
+./docs/install.sh
+```
 
-3. **Ollama** (for embeddings):
-   ```bash
-   # Make sure Ollama is running
-   ollama serve
-   
-   # Pull embedding model
-   ollama pull nomic-embed-text
-   
-   # Verify models
-   curl http://localhost:11434/v1/models
-   ```
+The script will automatically:
+- ✅ Check Python 3.8+ is installed
+- ✅ Verify Ollama is running
+- ✅ Pull the `nomic-embed-text` model
+- ✅ Install Python dependencies
+- ✅ Create configuration files
+- ✅ Verify everything works
 
-4. **Data directory** (created automatically):
-   ```
-   ~/.openclaw/memory/
-   ```
+### Manual Installation
+
+If you prefer manual setup:
+
+#### 1. Prerequisites
+
+**Python 3.8+**
+```bash
+python3 --version  # Should show 3.8 or higher
+```
+
+**Ollama** (for local embeddings)
+```bash
+# Install from https://ollama.com/
+# Or use:
+curl -fsSL https://ollama.com/install.sh | sh
+
+# Start Ollama
+ollama serve
+
+# Pull required model
+ollama pull nomic-embed-text
+```
+
+#### 2. Install fmem
+
+```bash
+# From the repository root
+pip3 install -e .
+
+# Or install dependencies directly
+pip3 install faiss-cpu litellm
+```
+
+#### 3. Create Data Directory
+
+```bash
+mkdir -p ~/.openclaw/memory/
+```
+
+#### 4. Configuration (Optional)
+
+Copy the example config:
+```bash
+cp docs/fmem.conf ~/.openclaw/memory/fmem.conf
+```
+
+### Installation Verification
+
+```bash
+# Test basic functionality
+python3 -c "from fmem import MemoryRetrieval; print('✓ fmem installed')"
+
+# Test Ollama connection
+curl http://localhost:11434/api/tags | grep nomic-embed-text
+```
+
+### Troubleshooting
+
+| Issue | Solution |
+|-------|----------|
+| `ModuleNotFoundError: No module named 'faiss'` | `pip3 install faiss-cpu` |
+| `Ollama not found` | Install from https://ollama.com/ |
+| `No embedding model found` | Run `ollama pull nomic-embed-text` |
+| `Permission denied` | Use `--user` flag: `pip3 install --user -e .` |
+| `Python version error` | Upgrade to Python 3.8+ |
 
 ### Optional: GPU Support
 
@@ -119,6 +178,8 @@ For faster indexing on NVIDIA GPUs:
 ```bash
 pip install faiss-gpu
 ```
+
+**Note:** Only use GPU version if you have NVIDIA CUDA available.
 
 ---
 
