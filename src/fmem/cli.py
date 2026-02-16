@@ -12,23 +12,78 @@ def cmd_index(args):
     """Index a directory of files."""
     try:
         memory = fmem.MemoryRetrieval()
-        directory = Path(args.directory).resolve()
         
-        # SECURITY: Resolve and validate directory (prevents traversal)
-        if not directory.exists():
-            print(f"Error: Directory '{directory}' does not exist", file=sys.stderr)
-            sys.exit(1)
-        
-        if not directory.is_dir():
-            print(f"Error: '{directory}' is not a directory", file=sys.stderr)
-            sys.exit(1)
-        
-        # Use parent as base_dir for security validation, or directory if at root
-        base_dir = directory.parent if directory.parent != directory else directory
-        
-        print(f"Indexing {directory}...")
-        count = memory.index_directory(str(directory), base_dir=str(base_dir))
-        print(f"✓ Indexed {count} files from {directory}")
+        if args.directory:
+            # Single directory mode
+            directory = Path(args.directory).resolve()
+            
+            # SECURITY: Resolve and validate directory (prevents traversal)
+            if not directory.exists():
+                print(f"Error: Directory '{directory}' does not exist", file=sys.stderr)
+                sys.exit(1)
+            
+            if not directory.is_dir():
+                print(f"Error: '{directory}' is not a directory", file=sys.stderr)
+                sys.exit(1)
+            
+            # Use parent as base_dir for security validation, or directory if at root
+            base_dir = directory.parent if directory.parent != directory else directory
+            
+            print(f"Indexing {directory}...")
+            count = memory.index_directory(str(directory), base_dir=str(base_dir))
+            print(f"✓ Indexed {count} files from {directory}")
+        else:
+            # Auto-index mode from config
+            config = fmem.CONFIG
+            
+            # Build list of directories to index
+            directories = []
+            
+            # Add data_dir (primary memory directory)
+            data_dir = config.data_dir
+            if data_dir:
+                directories.append(data_dir)
+            
+            # Add additional directories from config
+            if hasattr(config, 'additional_dirs') and config.additional_dirs:
+                additional = [d.strip() for d in config.additional_dirs.split(',') if d.strip()]
+                directories.extend(additional)
+            
+            # Build exclusion list from config
+            exclude_dirs = []
+            if hasattr(config, 'exclude_dirs') and config.exclude_dirs:
+                exclude_dirs = [d.strip() for d in config.exclude_dirs.split(',') if d.strip()]
+            
+            if not directories:
+                print("Error: No directories configured for indexing", file=sys.stderr)
+                print("Configure directories in fmem.conf:", file=sys.stderr)
+                print("  - Set data_dir (primary memory directory)", file=sys.stderr)
+                print("  - Set additional_dirs (comma-separated list)", file=sys.stderr)
+                sys.exit(1)
+            
+            print(f"Indexing {len(directories)} configured directories...")
+            print(f"File types: {', '.join(config.VALID_EXTENSIONS)}")
+            if exclude_dirs:
+                print(f"Excluding: {', '.join(exclude_dirs)}")
+            
+            total_count = 0
+            for directory in directories:
+                dir_path = Path(directory).resolve()
+                if dir_path.exists() and dir_path.is_dir():
+                    # Check if this directory should be excluded
+                    dir_name_lower = dir_path.name.lower()
+                    if dir_name_lower in [d.lower() for d in exclude_dirs]:
+                        print(f"   ⏭️  Skipping excluded directory: {directory}")
+                        continue
+                    
+                    print(f"\n📁 Indexing {directory}...")
+                    count = memory.index_directory(str(dir_path), base_dir=str(dir_path.parent))
+                    print(f"   ✓ Indexed {count} files")
+                    total_count += count
+                else:
+                    print(f"   ⚠️  Directory not found: {directory}")
+            
+            print(f"\n✅ Total indexed {total_count} files across all configured directories")
         
     except ValueError as e:
         print(f"Error: {e}", file=sys.stderr)
@@ -94,7 +149,7 @@ def main():
     
     # Index command
     index_parser = subparsers.add_parser("index", help="Index a directory")
-    index_parser.add_argument("directory", help="Directory to index")
+    index_parser.add_argument("directory", nargs="?", help="Directory to index (optional - auto-indexes all configured directories)")
     index_parser.set_defaults(func=cmd_index)
     
     # Search command

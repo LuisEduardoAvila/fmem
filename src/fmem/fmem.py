@@ -404,8 +404,19 @@ class ConfigManager:
         if os.path.exists(config_path):
             self.config.read(config_path)
             if 'settings' in self.config:
-                self.data_dir = self.config.get('settings', 'data_dir', fallback=self.data_dir)
+                self.data_dir = os.path.expanduser(self.config.get('settings', 'data_dir', fallback=self.data_dir))
                 self.ollama_url = self.config.get('settings', 'ollama_url', fallback=self.ollama_url)
+                
+                # Directory indexing settings
+                self.additional_dirs = self.config.get('settings', 'additional_dirs', fallback='')
+                self.exclude_dirs = self.config.get('settings', 'exclude_dirs', fallback='')
+                self.index_memory_md = self.config.getboolean('settings', 'index_memory_md', fallback=True)
+                self.index_daily_files = self.config.getboolean('settings', 'index_daily_files', fallback=True)
+                
+                # File extensions to index
+                extensions_str = self.config.get('settings', 'extensions', fallback='.md, .txt, .py, .json, .yaml, .yml, .csv')
+                self.VALID_EXTENSIONS = {ext.strip() for ext in extensions_str.split(',') if ext.strip()}
+                
                 # Memory quality enhancement settings
                 self.enable_recency_ranking = self.config.getboolean('settings', 'enable_recency_ranking', fallback=self.DEFAULT_ENABLE_RECENCY_RANKING)
                 self.recency_weight = self.config.getfloat('settings', 'recency_weight', fallback=self.DEFAULT_RECENCY_WEIGHT)
@@ -439,6 +450,10 @@ class ConfigManager:
                 }
         else:
             # Use defaults if config file doesn't exist
+            self.additional_dirs = ''
+            self.exclude_dirs = ''
+            self.index_memory_md = True
+            self.index_daily_files = True
             self.enable_recency_ranking = self.DEFAULT_ENABLE_RECENCY_RANKING
             self.recency_weight = self.DEFAULT_RECENCY_WEIGHT
             self.recency_threshold_days = self.DEFAULT_RECENCY_THRESHOLD_DAYS
@@ -2097,6 +2112,11 @@ class MemoryRetrieval:
         
         logger.info(f"Indexing directory: {directory_path} (base: {base_dir_path})")
         
+        # Build exclusion list from config
+        exclude_dirs = []
+        if hasattr(self.config, 'exclude_dirs') and self.config.exclude_dirs:
+            exclude_dirs = [d.strip().lower() for d in self.config.exclude_dirs.split(',') if d.strip()]
+        
         # Find all valid files
         if recursive:
             files = glob.glob(str(directory_path / "**" / "*"), recursive=True)
@@ -2108,12 +2128,34 @@ class MemoryRetrieval:
         for f in files:
             file_path = Path(f)
             if file_path.is_file():
+                # Check if any parent directory is in the exclusion list
+                skip_file = False
+                for parent in file_path.parents:
+                    if parent.name.lower() in exclude_dirs:
+                        logger.debug(f"Skipping file in excluded directory: {f}")
+                        skip_file = True
+                        break
+                
+                if skip_file:
+                    continue
+                
                 # SECURITY: Re-check each file is within allowed path
                 try:
                     resolved_path = file_path.resolve()
                     resolved_path.relative_to(base_dir_path)
-                    if file_path.suffix.lower() in self.config.VALID_EXTENSIONS:
-                        valid_files.append(f)
+                    
+                    # Check file extension
+                    if file_path.suffix.lower() not in self.config.VALID_EXTENSIONS:
+                        logger.debug(f"Skipping file with invalid extension: {f}")
+                        continue
+                    
+                    # Check file size
+                    is_valid_size, size_error = self.config.validate_file_size(str(file_path))
+                    if not is_valid_size:
+                        logger.warning(f"Skipping file: {size_error}: {f}")
+                        continue
+                    
+                    valid_files.append(f)
                 except (ValueError, RuntimeError):
                     # File outside base_dir or resolution error - skip
                     logger.warning(f"Skipping file outside base directory: {f}")
