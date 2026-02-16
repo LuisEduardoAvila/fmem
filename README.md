@@ -109,6 +109,97 @@ graph TB
 
 ---
 
+## 🏗️ How fmem Works (Architecture)
+
+### Current Implementation: AGENTS.md Integration
+
+**The flow is:**
+
+```
+You → Message → AGENTS.md Check → should_search()? 
+                                      ↓
+                             True: I call auto_recall()
+                                      ↓
+                              Results added to my context
+                                      ↓
+                              I respond with memory
+```
+
+**Key Characteristic:** **I decide when to search.** Your message triggers the check, but I actively call fmem only when patterns match.
+
+### Future: Automatic Hook - Planned
+
+**Different approach:** OpenClaw would search **before** I see your message:
+
+```
+You → Message → OpenClaw Auto-Searches fmem → Injects results
+                                              ↓
+                              I receive message + context
+                                              ↓
+                              I "just know" without deciding
+```
+
+**Key Difference:** **Automatic injection.** Every message gets searched, results injected if relevant. I don't decide—it's automatic.
+
+### Comparison
+
+| Aspect | Current | Future Planned |
+|--------|--------|----------------|
+| **Who searches?** | I search after seeing message | OpenClaw searches before I see it |
+| **When does memory appear?** | After I decide to call fmem | Before I process message |
+| **Do I "just know"?** | ❌ No, I actively retrieve | ✅ Yes, it's in my context |
+| **Misses context?** | Possible if no trigger | Catches everything |
+| **Speed** | Fast | Slightly slower |
+| **Implementation** | ✅ Live now | 📋 Planned |
+
+**Bottom Line:** Current implementation requires me to **actively retrieve** when triggers match. Future would make memory **automatically present** in every conversation.
+
+---
+
+## 📝 Key Triggers
+
+**Automatic recall activates on:**
+
+| Type | Examples |
+|------|----------|
+| **Explicit** | "remember", "recall", "what about" |
+| **Context** | "fitness", "movies", "projects", "work" |
+| **Time** | "last week", "previous", "recently", "before" |
+| **Personal** | "my goals", "my preferences", "my schedule", "we discussed" |
+
+### 🔧 Integration Setup
+
+**Required: Add this to AGENTS.md**
+
+```markdown
+## Memory Recall with fmem
+
+When the user mentions any of these triggers, automatically recall relevant information from fmem:
+
+### Trigger Patterns (check with should_search())
+- "remember", "recall", "what about", "last week", "previous", "before"
+- "my projects", "my goals", "we discussed", "you mentioned"
+- "fitness", "movies", "work", "travel" (personal context topics)
+
+### Automatic Recall Procedure
+When triggers detected:
+1. Import: `from fmem import auto_recall, format_results`
+2. Search: `results = auto_recall(user_message, top_k=3, chunk_mode='chunk')`
+3. Format: `context = format_results(results, max_preview=150)`
+4. Inject: Add context to your response naturally
+
+### Important Notes
+- fmem is LOCAL (privacy-safe, no external APIs)
+- Check deduplication (don't recall same file within 5 minutes)
+- Respect token limits (keep context under 500 tokens)
+- Never mention technical details (<retrieved_memory> tags, scores)
+- Present information naturally: "Earlier you mentioned..."
+```
+
+**Note:** This content needs to be added to your AGENTS.md file for full integration.
+
+---
+
 ## Multi-Factor Ranking
 
 **Formula:**
