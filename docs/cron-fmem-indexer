@@ -3,10 +3,17 @@
 # This cron job automatically indexes OpenClaw memory files every 30 minutes
 # to keep the semantic search index up to date.
 #
+# PREREQUISITE: Install fmem package
+#   cd /home/luis/.openclaw/workspace/projects/fmem
+#   pip install -e . --break-system-packages --user
+#
+#   Or for system-wide install (not recommended):
+#   pip install -e . --break-system-packages
+#
 # Installation:
 #   crontab -e
 #   Paste the line below:
-#   */30 * * * * cd /home/luis/.openclaw/workspace && /usr/bin/python3 DarthSpud/indexer.py >> /home/luis/.openclaw/logs/fmem-index.log 2>&1
+#   */30 * * * * /home/luis/.local/bin/fmem index /home/luis/.openclaw/workspace/memory >> /home/luis/.openclaw/logs/fmem-index.log 2>&1
 #
 # To edit your crontab:
 #   crontab -e
@@ -19,8 +26,12 @@
 #   Delete the fmem indexer line
 
 # =============================================================================
-# Automatic Memory Indexer
+# Automatic Memory Indexer - Using fmem CLI
 # =============================================================================
 # Runs every 30 minutes to index new/modified memory files
+# Requires fmem package to be installed: pip install -e . --break-system-packages
 # =============================================================================
-*/30 * * * * cd /home/luis/.openclaw/workspace && /usr/bin/python3 DarthSpud/indexer.py >> /home/luis/.openclaw/logs/fmem-index.log 2>&1
+*/30 * * * * /home/luis/.local/bin/fmem index /home/luis/.openclaw/workspace/memory >> /home/luis/.openclaw/logs/fmem-index.log 2>&1
+
+# Alternative: If fmem is not in PATH, use full path:
+# */30 * * * * cd /home/luis/.openclaw/workspace && python3 -c "from src.fmem import MemoryRetrieval; m = MemoryRetrieval(); m.index_directory('memory')" >> /home/luis/.openclaw/logs/fmem-index.log 2>&1

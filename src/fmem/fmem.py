@@ -2037,9 +2037,77 @@ class MemoryRetrieval:
         """Get total number of indexed documents."""
         return len(self.doc_metadata)
     
+    def get_chunk_count(self) -> int:
+        """Get total number of indexed chunks."""
+        if not self.conn:
+            return 0
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute("SELECT COUNT(*) FROM chunks")
+            return cursor.fetchone()[0]
+        except Exception:
+            return 0
+    
     def get_document_paths(self) -> List[str]:
         """Get list of all indexed document paths."""
         return [doc['filepath'] for doc in self.doc_metadata]
+    
+    def index_directory(self, directory: str, recursive: bool = True) -> int:
+        """
+        Index all valid files in a directory.
+        
+        Args:
+            directory: Path to directory to index
+            recursive: Whether to index subdirectories recursively
+            
+        Returns:
+            Number of files successfully indexed
+        """
+        import glob
+        
+        directory = Path(directory).resolve()
+        if not directory.exists():
+            raise ValueError(f"Directory does not exist: {directory}")
+        
+        if not directory.is_dir():
+            raise ValueError(f"Not a directory: {directory}")
+        
+        # Find all valid files
+        extensions_pattern = '|'.join(self.config.VALID_EXTENSIONS)
+        if recursive:
+            pattern = f"{directory}**/*({extensions_pattern})"
+            files = glob.glob(str(directory / "**" / "*"), recursive=True)
+        else:
+            files = glob.glob(str(directory / "*"))
+        
+        # Filter to valid files
+        valid_files = [
+            f for f in files 
+            if Path(f).is_file() and Path(f).suffix.lower() in self.config.VALID_EXTENSIONS
+        ]
+        
+        # Index files
+        success_count = 0
+        failed_files = []
+        
+        for filepath in valid_files:
+            try:
+                abs_path = str(Path(filepath).resolve())
+                self.add_document(abs_path)
+                success_count += 1
+            except Exception as e:
+                logger.warning(f"Failed to index {filepath}: {e}")
+                failed_files.append(filepath)
+        
+        # Persist changes
+        self.persist()
+        
+        if failed_files:
+            logger.info(f"Indexed {success_count} files, failed {len(failed_files)}")
+        else:
+            logger.info(f"Indexed {success_count} files")
+        
+        return success_count
 
 
 # ============================================================================

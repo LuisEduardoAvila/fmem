@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fmem"
+version = "3.0.0"
+description = "FAISS-based Memory Search for OpenClaw - Privacy-focused semantic search with local embeddings"
+readme = "README.md"
+license = {text = "MIT"}
+authors = [
+    {name = "Luis Eduardo Avila", email = "luis.eduardo.avila@gmail.com"}
+]
+requires-python = ">=3.9"
+dependencies = [
+    "litellm>=1.0.0",
+    "faiss-cpu>=1.7.0",
+    "numpy>=1.24.0",
+]
+
+[project.scripts]
+fmem = "fmem.cli:main"
+
+[tool.setuptools]
+packages = ["fmem"]
+package-dir = {"" = "src"}
+
+[tool.setuptools.package-data]
+fmem = ["py.typed"]
