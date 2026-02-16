@@ -94,13 +94,21 @@ Final Score = (Semantic × 0.5) + (Recency × 0.3) + (Location × 0.2)
 - Persistence: Binary file `faiss_index.fai`
 
 **SQLite Database:**
-- Table: `chunks` with metadata
-- Index on `parent_file` for fast lookup
+- Tables: `documents`, `chunks`, `embeddings`
+- Index on `parent_file` for fast chunk lookup
 - Schema version tracking
 
+**chunk_index_map:**
+Critical mapping that links FAISS indices to documents/chunks:
+- Maps FAISS index position → (filepath, chunk_id)
+- Stored as JSON: `chunk_index_map.json`
+- Essential for chunk-to-document resolution after search
+- Maintained during indexing and loaded on startup
+
 **JSON Metadata:**
-- Document-level info (filepath, mtime, etc.)
+- Document-level info (filepath, mtime, chunk_count)
 - Separate from chunk metadata for efficiency
+- Used for recency ranking and display
 
 ### 5. Embedding Cache
 
@@ -310,9 +318,25 @@ User Message
 ### CLI Integration
 
 Direct Python API access via `fmem.cli` module:
-- Commands: `search`, `add`, `status`, `reset`
-- Arguments: Parsed with argparse
+
+**Commands:**
+- `fmem index [directory]` - Index files (auto-indexes configured dirs if no argument)
+- `fmem search "query" [-k N]` - Search memory
+- `fmem status` - Show index status
+
+**Implementation:**
+- Arguments parsed with argparse
 - Output: Formatted text or JSON
+- Delegates to `MemoryRetrieval` methods
+
+**CLI Architecture:**
+```
+CLI Command → argparse → cmd_handler() → MemoryRetrieval.method()
+                                            ↓
+                                      FAISS/SQLite operations
+                                            ↓
+                                      Formatted output
+```
 
 ### Future MCP Integration
 

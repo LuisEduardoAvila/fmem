@@ -218,7 +218,7 @@ You → Message → OpenClaw Auto-Searches fmem → Injects results
 | Time | "last week", "previous", "recently" |
 | Personal | "my goals", "my preferences", "my schedule" |
 
-See [AGENTS.md](../AGENTS.md) for complete trigger patterns.
+See [AGENTS.md](AGENTS.md) for complete trigger patterns.
 
 ---
 

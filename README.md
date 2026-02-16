@@ -115,7 +115,7 @@ Agent: (detects triggers → auto_recall() → responds with context)
 - ✅ Agent decides when to recall
 - ✅ Natural conversation flow
 
-**Location:** See `../../AGENTS.md` - Memory Recall section
+**Location:** See `AGENTS.md` - Memory Recall section
 
 ---
 
@@ -156,13 +156,18 @@ Agent: (detects triggers → auto_recall() → responds with context)
 - [x] OpenClaw integration
 - [x] Security hardening
 
-### Phase 2: Enhanced Features (✅ 80% Complete)
-- [x] AGENTS.md memory integration
+### Phase 2: Enhanced Features (✅ ~60% Complete)
+Status: Option 1 complete (AGENTS.md), Option B deferred for evaluation
+
+**Completed:**
+- [x] AGENTS.md memory integration (Option 1 - Active)
 - [x] Security hardening (score: 8/10)
-- [x] Documentation (INSTALLATION.md, API.md)
-- [ ] Async support for non-blocking retrieval
+- [x] Documentation (INSTALLATION.md, API.md, ARCHITECTURE.md)
+
+**Planned/Deferred:**
+- [ ] Async support for non-blocking retrieval (4-6 hours)
+- [🔄] Automatic Hook (Option B) - Dec 2026-03-01 after usage data
 - [ ] Incremental re-indexing (file watching)
-- [ ] Cross-document chunk relationships
 
 ### Phase 3: MCP Wrapper (Future)
 - [ ] MCP server implementation
@@ -202,6 +207,72 @@ Agent: (detects triggers → auto_recall() → responds with context)
 
 ---
 
+## CLI Usage
+
+fmem provides a simple command-line interface for indexing and searching.
+
+### Index documents
+
+```bash
+# Auto-index configured directories (from fmem.conf)
+fmem index
+
+# Index specific directory
+fmem index /path/to/documents
+
+# Index single file
+fmem index /path/to/file.md
+```
+
+### Search
+
+```bash
+# Basic search
+fmem search "your query"
+
+# Search with top-k results
+fmem search "your query" -k 5
+```
+
+### Check status
+
+```bash
+fmem status
+```
+
+---
+
+## Configuration
+
+Create `~/.openclaw/memory/fmem.conf`:
+
+```ini
+[settings]
+# Storage location
+data_dir = ~/.openclaw/memory
+ollama_url = http://localhost:11434
+
+# Directories to index (comma-separated)
+additional_dirs = ~/Documents/notes, ~/projects
+
+# Directories to exclude (important security feature)
+exclude_dirs = .git, __pycache__, node_modules, .venv
+
+# Specific files to index (alternative to additional_dirs for files)
+index_files = ~/README.md, ~/todo.txt
+
+# File extensions (narrows default: .md, .txt, .py, .json, .yaml, .yml, .csv)
+extensions = .md, .txt, .py
+
+# Index memory files
+index_memory_md = true
+index_daily_files = true
+```
+
+**Note:** Config `extensions` narrows code defaults. Code default includes: `.md, .txt, .py, .json, .yaml, .yml, .csv`.
+
+---
+
 **Last Updated:** 2026-02-16
 
 ---
@@ -211,7 +282,7 @@ Agent: (detects triggers → auto_recall() → responds with context)
 | Phase | Status | Details |
 |-------|--------|---------|
 | Phase 1: Core Stability | ✅ Complete | FAISS, chunk indexing, ranking, security hardening |
-| Phase 2: Enhanced Features | ✅ 80% Complete | AGENTS.md integration done, async/incremental indexing pending |
+| Phase 2: Enhanced Features | ✅ ~60% Complete | Option 1 done (AGENTS.md), async/incremental pending |
 
 **Changes in this update:**
 - ✅ Rewrote intro to emphasize natural conversation and precise memory retrieval
