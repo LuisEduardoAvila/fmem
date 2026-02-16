@@ -84,6 +84,25 @@ def cmd_index(args):
                 else:
                     print(f"   ⚠️  Directory not found: {directory}")
             
+            # Index specific files (e.g., project READMEs)
+            if hasattr(config, 'index_files') and config.index_files:
+                files = [f.strip() for f in config.index_files.split(',') if f.strip()]
+                if files:
+                    print(f"\n📄 Indexing {len(files)} specific files...")
+                    for filepath in files:
+                        file_path = Path(filepath).resolve()
+                        if file_path.exists() and file_path.is_file():
+                            # Check extension
+                            if file_path.suffix.lower() in config.VALID_EXTENSIONS:
+                                print(f"   Indexing {filepath}...")
+                                count = memory.index_file(str(file_path))
+                                print(f"   ✓ Indexed {count} chunks from {filepath}")
+                                total_count += count
+                            else:
+                                print(f"   ⏭️  Skipping (not in allowed extensions): {filepath}")
+                        else:
+                            print(f"   ⚠️  File not found: {filepath}")
+            
             print(f"\n✅ Total indexed {total_count} files across all configured directories")
         
     except ValueError as e:

@@ -410,6 +410,7 @@ class ConfigManager:
                 # Directory indexing settings
                 self.additional_dirs = self.config.get('settings', 'additional_dirs', fallback='')
                 self.exclude_dirs = self.config.get('settings', 'exclude_dirs', fallback='')
+                self.index_files = self.config.get('settings', 'index_files', fallback='')
                 self.index_memory_md = self.config.getboolean('settings', 'index_memory_md', fallback=True)
                 self.index_daily_files = self.config.getboolean('settings', 'index_daily_files', fallback=True)
                 
@@ -452,6 +453,7 @@ class ConfigManager:
             # Use defaults if config file doesn't exist
             self.additional_dirs = ''
             self.exclude_dirs = ''
+            self.index_files = ''
             self.index_memory_md = True
             self.index_daily_files = True
             self.enable_recency_ranking = self.DEFAULT_ENABLE_RECENCY_RANKING
@@ -1101,6 +1103,9 @@ class MemoryRetrieval:
         self.rate_limiter = RateLimiter(max_requests=10, window_seconds=60)
         # Embedding cache with TTL (1 hour) and LRU eviction (max 10000 entries)
         self.embedding_cache = _LRUCache(maxsize=10000, ttl=3600)
+        # Chunk-to-document mapping: maps FAISS index -> (filepath, chunk_id)
+        # This is critical because FAISS contains chunk embeddings, not document embeddings
+        self.chunk_index_map = []
         
         logger.info("Initializing MemoryRetrieval...")
         
@@ -1175,15 +1180,22 @@ class MemoryRetrieval:
             if os.path.exists(self.config.index_path):
                 self.index = faiss.read_index(self.config.index_path)
                 logger.info(f"✓ Loaded FAISS index from {self.config.index_path}")
-            
+
             # Load metadata
             if os.path.exists(self.config.metadata_path):
                 with open(self.config.metadata_path, 'r') as f:
                     self.doc_metadata = json.load(f)
                 logger.info(f"✓ Loaded {len(self.doc_metadata)} documents from metadata")
-                
+
                 # Also load from database
                 self._load_from_database()
+
+            # Load chunk index map (critical for correct chunk-to-doc mapping)
+            chunk_map_path = os.path.join(self.config.data_dir, 'chunk_index_map.json')
+            if os.path.exists(chunk_map_path):
+                with open(chunk_map_path, 'r') as f:
+                    self.chunk_index_map = json.load(f)
+                logger.info(f"✓ Loaded {len(self.chunk_index_map)} chunk mappings")
         except Exception as e:
             logger.warning(f"Failed to load cached index: {e}")
             # Initialize new index
@@ -1667,14 +1679,21 @@ class MemoryRetrieval:
                     chunk_embedding = self._get_embedding(chunk.content[:1000])
                     if chunk_embedding is not None:
                         chunk_embeddings.append(chunk_embedding)
-                        
+
                         # Add to FAISS index
                         if self.index is None:
                             self.index = faiss.IndexFlatIP(self.dimension)
                         self.index.add(np.array([chunk_embedding]))
-                        
+
                         # Store chunk metadata
                         self._store_chunk_metadata(chunk)
+
+                        # Add to chunk_index_map: FAISS index -> (filepath, chunk_id)
+                        # This maintains the mapping so search() can find the correct document
+                        self.chunk_index_map.append({
+                            'filepath': filepath,
+                            'chunk_id': chunk.id
+                        })
                 
                 # Also store the full document for backward compatibility
                 metadata = {
@@ -1726,15 +1745,21 @@ class MemoryRetrieval:
                     logger.info(f"✓ Updated document: {filepath}")
                 else:
                     self.doc_metadata.append(metadata)
-                    
+
                     # Add to FAISS index
                     if main_embedding is not None:
                         if self.index is None:
                             self.index = faiss.IndexFlatIP(self.dimension)
                         self.index.add(np.array([main_embedding]))
-                    
+                        # Add to chunk_index_map for non-chunked documents
+                        # Use filepath as chunk_id for backward compatibility
+                        self.chunk_index_map.append({
+                            'filepath': filepath,
+                            'chunk_id': filepath
+                        })
+
                     logger.info(f"✓ Added document: {filepath}")
-                
+
                 # Store in database
                 self._store_embedding(metadata, content)
             
@@ -1813,17 +1838,44 @@ class MemoryRetrieval:
         # Search FAISS index
         D, I = self.index.search(np.array([query_embedding]), top_k)
         
+        # Similarity threshold (minimum relevance score)
+        # Cosine similarity: 0.0 = orthogonal, 1.0 = identical
+        MIN_SIMILARITY_SCORE = 0.3
+        
         # Build results based on chunk_mode
         results = []
         processed_chunks = set()  # Track processed chunk IDs for deduplication
-        
+
         for idx in range(len(I[0])):
-            doc_idx = I[0][idx]
-            if doc_idx >= len(self.doc_metadata):
+            score = float(D[0][idx])
+
+            # Skip results below similarity threshold
+            if score < MIN_SIMILARITY_SCORE:
                 continue
-            
-            doc = self.doc_metadata[doc_idx]
-            filepath = doc['filepath']
+
+            faiss_idx = I[0][idx]
+
+            # Use chunk_index_map to get the correct filepath and chunk_id
+            # This is the fix for the chunk-to-document mapping bug
+            if 0 <= faiss_idx < len(self.chunk_index_map):
+                chunk_mapping = self.chunk_index_map[faiss_idx]
+                filepath = chunk_mapping['filepath']
+                chunk_id = chunk_mapping['chunk_id']
+            else:
+                # Graceful fallback: if index is out of range, skip
+                logger.warning(f"FAISS index {faiss_idx} out of range for chunk_index_map (size: {len(self.chunk_index_map)})")
+                continue
+
+            # Find document metadata by filepath
+            doc = None
+            for d in self.doc_metadata:
+                if d['filepath'] == filepath:
+                    doc = d
+                    break
+
+            if doc is None:
+                logger.warning(f"Document not found for filepath: {filepath}")
+                continue
             
             # Handle chunk_mode
             if chunk_mode == "document" or not doc.get('is_chunked', False):
@@ -1836,11 +1888,11 @@ class MemoryRetrieval:
                     'is_chunked': doc.get('is_chunked', False)
                 })
             elif chunk_mode == "chunk":
-                # Return individual chunks
-                chunks = self._get_chunks_for_file(filepath)
-                for chunk in chunks:
-                    if chunk.id not in processed_chunks:
-                        processed_chunks.add(chunk.id)
+                # Return specific chunk that matched (using chunk_id from mapping)
+                if chunk_id not in processed_chunks:
+                    chunk = self._get_chunk_by_id(chunk_id)
+                    if chunk:
+                        processed_chunks.add(chunk_id)
                         results.append({
                             'filepath': chunk.parent_file,
                             'content': chunk.content,
@@ -1849,12 +1901,12 @@ class MemoryRetrieval:
                             'chunk_info': chunk.to_dict()
                         })
             elif chunk_mode == "hybrid":
-                # Return both chunks and document
-                chunks = self._get_chunks_for_file(filepath)
+                # Return both specific chunk and document
                 chunk_results = []
-                for chunk in chunks:
-                    if chunk.id not in processed_chunks:
-                        processed_chunks.add(chunk.id)
+                if chunk_id not in processed_chunks:
+                    chunk = self._get_chunk_by_id(chunk_id)
+                    if chunk:
+                        processed_chunks.add(chunk_id)
                         chunk_results.append({
                             'filepath': chunk.parent_file,
                             'content': chunk.content,
@@ -1862,7 +1914,7 @@ class MemoryRetrieval:
                             'chunk_mode': 'chunk',
                             'chunk_info': chunk.to_dict()
                         })
-                
+
                 # Add document result
                 doc_result = {
                     'filepath': filepath,
@@ -1871,7 +1923,7 @@ class MemoryRetrieval:
                     'chunk_mode': 'document',
                     'is_chunked': doc.get('is_chunked', False)
                 }
-                
+
                 # Combine document with its chunks
                 doc_result['chunks'] = chunk_results
                 results.append(doc_result)
@@ -1939,7 +1991,47 @@ class MemoryRetrieval:
         except Exception as e:
             logger.error(f"Failed to retrieve chunks for {filepath}: {e}")
             return []
-    
+
+    def _get_chunk_by_id(self, chunk_id: str) -> Optional[ChunkMetadata]:
+        """
+        Retrieve a single chunk by its ID from the database.
+
+        Args:
+            chunk_id: Unique chunk identifier
+
+        Returns:
+            ChunkMetadata object or None if not found
+        """
+        if not self.conn:
+            return None
+
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute("""
+                SELECT chunk_id, parent_file, heading, content, keywords,
+                       category, token_count, chunk_index
+                FROM chunks WHERE chunk_id = ?
+            """, (chunk_id,))
+
+            row = cursor.fetchone()
+            if row:
+                keywords = row[4].split(',') if row[4] else []
+                return ChunkMetadata(
+                    id=row[0],
+                    parent_file=row[1],
+                    heading=row[2],
+                    content=row[3],
+                    keywords=keywords,
+                    category=row[5],
+                    tokens=row[6],
+                    chunk_index=row[7]
+                )
+            return None
+
+        except Exception as e:
+            logger.error(f"Failed to retrieve chunk {chunk_id}: {e}")
+            return None
+
     def persist(self) -> bool:
         """Save index and metadata to disk for persistence."""
         success = True
@@ -1962,7 +2054,18 @@ class MemoryRetrieval:
             except Exception as e:
                 logger.error(f"Failed to persist metadata: {e}")
                 success = False
-        
+
+        # Persist chunk_index_map (critical for correct search)
+        if self.chunk_index_map:
+            try:
+                chunk_map_path = os.path.join(self.config.data_dir, 'chunk_index_map.json')
+                with open(chunk_map_path, 'w') as f:
+                    json.dump(self.chunk_index_map, f, indent=2)
+                logger.info(f"✓ Chunk index map persisted to {chunk_map_path}")
+            except Exception as e:
+                logger.error(f"Failed to persist chunk_index_map: {e}")
+                success = False
+
         # Close database connection
         if self.conn:
             try:
