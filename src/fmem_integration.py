@@ -24,13 +24,12 @@ logger = logging.getLogger(__name__)
 # Get workspace from environment variable with proper fallback
 workspace = os.environ.get('FMEM_WORKSPACE')
 if not workspace:
-    # Use default fallback path
-    workspace = os.path.expanduser('~/.fmem/workspace')
+    # Warn but continue - don't hardcode paths
+    workspace = '~/.openclaw/workspace'
     logger.warning(f"FMEM_WORKSPACE not set, using fallback: {workspace}")
-
-# Add workspace to path if not already present
-if workspace not in sys.path:
-    sys.path.insert(0, workspace)
+darthspud_dir = os.path.join(workspace, 'DarthSpud')
+if darthspud_dir not in sys.path:
+    sys.path.insert(0, darthspud_dir)
 
 from fmem import MemoryRetrieval
 
