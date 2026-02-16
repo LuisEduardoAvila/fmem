@@ -75,25 +75,41 @@ projects/fmem/
 
 ### Architecture
 
-```
-User Query → fmem_integration.py → MemoryRetrieval.search()
-                                         ↓
-                              FAISS Index (local)
-                                         ↓
-                              Results + Context
-                                         ↓
-                              OpenClaw Agent
+```mermaid
+graph TB
+    subgraph CLI Operations
+        A[fmem index] --> B[Auto-index configured dirs]
+        C[fmem search "query"] --> D[Find relevant memory]
+        E[fmem status] --> F[Check index health]
+    end
+    
+    subgraph Integration Operations
+        G[User Message] --> H[Trigger Detection]
+        H -->|Yes| I[Import auto_recall]
+        I --> J[Search Memory]
+        J --> K[Format Results]
+        K --> L[Contextual Response]
+    end
+    
+    subgraph fmem Package
+        M[MemoryRetrieval] --> N[FAISS Index]
+        O[Chunk Indexing] --> N
+        P[Multi-Factor Scoring] --> Q[Results]
+    end
+    
+    style CLI Operations fill:#f9f,stroke:#333,stroke-width:2px
+    style Integration Operations fill:#9cf,stroke:#333,stroke-width:2px
+    style fmem Package fill:#cfc,stroke:#333,stroke-width:2px
 ```
 
 ### Components
 
-| Component | Purpose | Location |
-|-----------|---------|----------|
-| `MemoryRetrieval` | Core search class | `src/fmem.py` |
-| `chunk_markdown()` | Section-aware splitting | `src/fmem.py` |
-| `auto_recall()` | OpenClaw trigger handler | `src/fmem_integration.py` |
-| `enhanced_indexer.py` | Auto-indexing with weights | `src/enhanced_indexer.py` |
-| `cli.py` | Command-line interface | `src/cli.py` |
+| Component | Purpose | Location | Usage |
+|-----------|---------|----------|-------|
+| `MemoryRetrieval` | Core search class | `src/fmem/fmem.py` | Both CLI & Integration |
+| `auto_recall()` | OpenClaw trigger handler | `src/fmem/fmem_integration.py` | Integration import: `from fmem import auto_recall` |
+| `cli.py` | Command-line interface | `src/fmem/cli.py` | CLI commands: `fmem index`, `fmem search` |
+| `ConfigManager` | Configuration handling | `src/fmem/fmem.py` | Package-level usage |
 
 ---
 
