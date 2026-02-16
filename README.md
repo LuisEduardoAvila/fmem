@@ -19,6 +19,25 @@ fmem is a privacy-first memory system that makes AI conversations feel natural a
 - **~57% token reduction** — Less noise, more signal in context windows
 - **Natural conversation flow** — References that feel contextual, not robotic
 
+**How It Works:**
+
+```mermaid
+graph LR
+    A[User Message] --> B[Trigger Detection<br/>should_search?]
+    B -->|Yes| C[fmem Integration<br/>auto_recall()]
+    B -->|No| D[Normal Response]
+    C --> E[Document Indexing<br/>FAISS + Metadata]
+    E --> F[Multi-Factor Search<br/>Semantic + Recency + Location]
+    F --> G[Contextual Response<br/>with Memory]
+    G --> H[User]
+    
+    subgraph fmem System
+        E --> I[Chunk Indexing<br/>Split by ## Headings]
+        I --> J[Vector Database<br/>FAISS Index]
+        J --> K[Multi-Factor Scoring]
+    end
+```
+
 **Multi-Factor Ranking:** Beyond simple similarity, fmem scores results by:
 - **Semantic (50%):** FAISS vector similarity
 - **Recency (30%):** Time-based decay based on file modification time  
@@ -30,6 +49,8 @@ pie title Multi-Factor Weighting
     "Recency" : 30
     "Location/Categorical" : 20
 ```
+
+**See Examples:** For detailed workflows and real-world usage, see [docs/EXAMPLES.md](./docs/EXAMPLES.md)
 
 ---
 
