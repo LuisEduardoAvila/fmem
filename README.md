@@ -368,32 +368,41 @@ fmem status
 
 ## Configuration
 
-Create `~/.openclaw/memory/fmem.conf`:
+fmem uses a configuration file at `~/.openclaw/memory/fmem.conf`. For all available options, see [config/enhanced_fmem.conf](./config/enhanced_fmem.conf).
+
+### Key Configuration Options
 
 ```ini
 [settings]
-# Storage location
-data_dir = ~/.openclaw/memory
-ollama_url = http://localhost:11434
+# Core Settings
+data_dir = ~/.openclaw/memory                    # Storage location
+ollama_url = http://localhost:11434              # Ollama API endpoint
 
-# Directories to index (comma-separated)
-additional_dirs = ~/Documents/notes, ~/projects
+# Search and Rate Limiting
+min_similarity_threshold = 0.3                   # Filter low-relevance results (0.0-1.0)
+rate_limit_requests = 10                         # Max Ollama API calls per window
+rate_limit_window_seconds = 60                   # Rate limiting window
 
-# Directories to exclude (important security feature)
-exclude_dirs = .git, __pycache__, node_modules, .venv
+# Directories and Files
+additional_dirs = /path/to/dir1,/path/to/dir2    # Directories to auto-index
+exclude_dirs = .git,__pycache__,node_modules     # Directories to exclude
+index_files = /path/to/file1.md                  # Specific files to index
+extensions = .md,.txt                            # File extensions to index (narrows code defaults)
 
-# Specific files to index (alternative to additional_dirs for files)
-index_files = ~/README.md, ~/todo.txt
+# Ranking Settings
+enable_location_ranking = true                   # Enable location-based ranking
+location_weight = 0.2                            # Location importance (0.0-1.0)
+enable_recency_ranking = true                    # Enable recency-based ranking
+recency_weight = 0.3                             # Recency importance (0.0-1.0)
 
-# File extensions (narrows default: .md, .txt, .py, .json, .yaml, .yml, .csv)
-extensions = .md, .txt, .py
-
-# Index memory files
-index_memory_md = true
-index_daily_files = true
+# Location Weights
+docs_weight = 1.5                               # Documentation importance
+projects_weight = 1.3                           # Projects importance
+notes_weight = 1.0                               # Notes importance
+chats_weight = 0.8                               # Chat importance
 ```
 
-**Note:** Config `extensions` narrows code defaults. Code default includes: `.md, .txt, .py, .json, .yaml, .yml, .csv`.
+**See:** [config/enhanced_fmem.conf](./config/enhanced_fmem.conf) for complete configuration with descriptions.
 
 ---
 
