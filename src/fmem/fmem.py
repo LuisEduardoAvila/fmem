@@ -2207,6 +2207,62 @@ class MemoryRetrieval:
         
         return success_count
 
+    def index_file(self, filepath: str, base_dir: Optional[str] = None) -> int:
+        """
+        Index a single file.
+        
+        Args:
+            filepath: Path to file to index
+            base_dir: Optional base directory for path validation
+            
+        Returns:
+            Number of chunks indexed (1 if successful, 0 if failed)
+            
+        Raises:
+            ValueError: If file doesn't exist or is invalid
+        """
+        # Resolve file path
+        file_path = Path(filepath).resolve()
+        
+        if not file_path.exists():
+            raise ValueError(f"File does not exist: {filepath}")
+        
+        if not file_path.is_file():
+            raise ValueError(f"Not a file: {filepath}")
+        
+        # Set base directory for secure path validation
+        if base_dir is None:
+            base_dir_path = file_path.parent
+        else:
+            base_dir_path = Path(base_dir).resolve()
+        
+        # SECURITY: Validate file is within base_dir
+        try:
+            file_path.relative_to(base_dir_path)
+        except ValueError:
+            raise ValueError(f"File {file_path} is outside base directory {base_dir_path}")
+        
+        # Check file extension
+        if file_path.suffix.lower() not in self.config.VALID_EXTENSIONS:
+            raise ValueError(f"File type not allowed: {file_path.suffix}")
+        
+        # Check file size
+        is_valid_size, size_error = self.config.validate_file_size(str(file_path))
+        if not is_valid_size:
+            raise ValueError(f"File validation failed: {size_error}")
+        
+        logger.info(f"Indexing file: {file_path}")
+        
+        try:
+            abs_path = str(file_path)
+            self.add_document(abs_path)
+            self.persist()
+            logger.info(f"✓ Indexed file: {abs_path}")
+            return 1
+        except Exception as e:
+            logger.warning(f"Failed to index {filepath}: {e}")
+            raise
+
 
 # ============================================================================
 # CLI Interface

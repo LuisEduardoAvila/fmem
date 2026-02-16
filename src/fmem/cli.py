@@ -22,16 +22,22 @@ def cmd_index(args):
                 print(f"Error: Directory '{directory}' does not exist", file=sys.stderr)
                 sys.exit(1)
             
-            if not directory.is_dir():
-                print(f"Error: '{directory}' is not a directory", file=sys.stderr)
+            if directory.is_file():
+                # Single file mode
+                print(f"Indexing file {directory}...")
+                count = memory.index_file(str(directory))
+                print(f"✓ Indexed {count} chunks from {directory}")
+            elif directory.is_dir():
+                # Directory mode  
+                # Use parent as base_dir for security validation, or directory if at root
+                base_dir = directory.parent if directory.parent != directory else directory
+                
+                print(f"Indexing directory {directory}...")
+                count = memory.index_directory(str(directory), base_dir=str(base_dir))
+                print(f"✓ Indexed {count} files from {directory}")
+            else:
+                print(f"Error: '{directory}' is not a file or directory", file=sys.stderr)
                 sys.exit(1)
-            
-            # Use parent as base_dir for security validation, or directory if at root
-            base_dir = directory.parent if directory.parent != directory else directory
-            
-            print(f"Indexing {directory}...")
-            count = memory.index_directory(str(directory), base_dir=str(base_dir))
-            print(f"✓ Indexed {count} files from {directory}")
         else:
             # Auto-index mode from config
             config = fmem.CONFIG

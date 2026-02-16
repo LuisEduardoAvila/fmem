@@ -5,6 +5,7 @@ src/fmem/__main__.py
 src/fmem/cli.py
 src/fmem/fmem.py
 src/fmem/fmem_integration.py
+src/fmem/memory_utils.py
 src/fmem.egg-info/PKG-INFO
 src/fmem.egg-info/SOURCES.txt
 src/fmem.egg-info/dependency_links.txt

@@ -12,11 +12,13 @@ __email__ = "luis.eduardo.avila@gmail.com"
 # Core imports
 from .fmem import MemoryRetrieval, ConfigManager
 from .fmem_integration import auto_recall, should_search, format_results
+from . import memory_utils
 
 __all__ = [
     "MemoryRetrieval",
     "ConfigManager", 
     "auto_recall",
     "should_search",
-    "format_results"
+    "format_results",
+    "memory_utils"
 ]
