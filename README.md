@@ -368,41 +368,36 @@ fmem status
 
 ## Configuration
 
-fmem uses a configuration file at `~/.openclaw/memory/fmem.conf`. For all available options, see [config/enhanced_fmem.conf](./config/enhanced_fmem.conf).
+fmem uses a configuration file at `~/.openclaw/memory/fmem.conf`. For detailed configuration options and descriptions, see [config/enhanced_fmem.conf](./config/enhanced_fmem.conf).
 
 ### Key Configuration Options
 
-```ini
-[settings]
-# Core Settings
-data_dir = ~/.openclaw/memory                    # Storage location
-ollama_url = http://localhost:11434              # Ollama API endpoint
+| Setting | Default | Description |
+|---------|---------|-------------|
+| **Core Settings** | | |
+| `data_dir` | `~/.openclaw/memory/` | Storage location for indexes and metadata |
+| `ollama_url` | `http://localhost:11434` | Ollama API endpoint for embeddings |
+| **Search Settings** | | |
+| `min_similarity_threshold` | `0.3` | Minimum cosine similarity (0.0-1.0) for results |
+| `rate_limit_requests` | `10` | Maximum Ollama API calls per window |
+| `rate_limit_window_seconds` | `60` | Rate limiting window in seconds |
+| **File Indexing** | | |
+| `additional_dirs` | *(varies)* | Directories to recursively auto-index |
+| `exclude_dirs` | `venv,__pycache__,node_modules` | Directories to exclude from indexing |
+| `index_files` | *(varies)* | Specific individual files to index (e.g., READMEs) |
+| `extensions` | `.md,.txt` | File extensions to index (narrows code defaults) |
+| **Ranking** | | |
+| `enable_location_ranking` | `true` | Enable location-based ranking |
+| `location_weight` | `0.2` | Location importance factor (0.0-1.0) |
+| `enable_recency_ranking` | `true` | Enable recency-based ranking |
+| `recency_weight` | `0.3` | Recency importance factor (0.0-1.0) |
+| **Location Weights** | | |
+| `docs_weight` | `1.5` | Documentation files importance multiplier |
+| `projects_weight` | `1.3` | Project files importance multiplier |
+| `notes_weight` | `1.0` | Notes files importance multiplier |
+| `chats_weight` | `0.8` | Chat files importance multiplier |
 
-# Search and Rate Limiting
-min_similarity_threshold = 0.3                   # Filter low-relevance results (0.0-1.0)
-rate_limit_requests = 10                         # Max Ollama API calls per window
-rate_limit_window_seconds = 60                   # Rate limiting window
-
-# Directories and Files
-additional_dirs = /path/to/dir1,/path/to/dir2    # Directories to auto-index
-exclude_dirs = .git,__pycache__,node_modules     # Directories to exclude
-index_files = /path/to/file1.md                  # Specific files to index
-extensions = .md,.txt                            # File extensions to index (narrows code defaults)
-
-# Ranking Settings
-enable_location_ranking = true                   # Enable location-based ranking
-location_weight = 0.2                            # Location importance (0.0-1.0)
-enable_recency_ranking = true                    # Enable recency-based ranking
-recency_weight = 0.3                             # Recency importance (0.0-1.0)
-
-# Location Weights
-docs_weight = 1.5                               # Documentation importance
-projects_weight = 1.3                           # Projects importance
-notes_weight = 1.0                               # Notes importance
-chats_weight = 0.8                               # Chat importance
-```
-
-**See:** [config/enhanced_fmem.conf](./config/enhanced_fmem.conf) for complete configuration with descriptions.
+**Complete Configuration:** For all available options with detailed descriptions, see [config/enhanced_fmem.conf](./config/enhanced_fmem.conf).
 
 ---
 
