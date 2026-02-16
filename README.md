@@ -8,6 +8,31 @@ License: MIT
 
 ---
 
+## What is fmem vs OpenClaw?
+
+**🤖 OpenClaw** is the AI assistant framework that manages conversations, implements agent logic, and provides the interface for interacting with you.
+
+**🧠 fmem** is a specialized memory system that OpenClaw uses to recall your previous conversations and context. It's like OpenClaw's "memory brain".
+
+### Relationship
+```
+You ↔ OpenClaw (AI Assistant) ↔ fmem (Memory System)
+```
+
+**OpenClaw does:**
+- Manages conversations and agent behavior
+- Makes decisions about when to use memory
+- Generates responses based on retrieved context
+- Provides CLI interface for standalone operations
+
+**fmem does:**
+- Stores and indexes your memory files (documents, notes, etc.)
+- Performs semantic search across your content
+- Provides auto_recall functionality for OpenClaw integration
+- Maintains FAISS indexes for fast similarity search
+
+---
+
 ## Overview
 
 fmem is a privacy-first memory system that makes AI conversations feel natural and continuous. It remembers the precise context you need — not entire documents, not isolated keywords, but the *meaningful chunks* that matter.
@@ -102,10 +127,10 @@ graph TB
 
 | Component | Purpose | Location | Usage |
 |-----------|---------|----------|-------|
-| `MemoryRetrieval` | Core search class | `src/fmem/fmem.py` | Both CLI & Integration |
-| `auto_recall()` | OpenClaw trigger handler | `src/fmem/fmem_integration.py` | Integration import: `from fmem import auto_recall` |
-| `cli.py` | Command-line interface | `src/fmem/cli.py` | CLI commands: `fmem index`, `fmem search` |
-| `ConfigManager` | Configuration handling | `src/fmem/fmem.py` | Package-level usage |
+| `MemoryRetrieval` | Core search class | `src/fmem/fmem.py` | Both CLI & OpenClaw Integration |
+| `auto_recall()` | OpenClaw integration function | `src/fmem/fmem_integration.py` | Called by OpenClaw: `from fmem import auto_recall` |
+| `cli.py` | Command-line interface | `src/fmem/cli.py` | Standalone CLI: `fmem index`, `fmem search` |
+| `ConfigManager` | Configuration handling | `src/fmem/fmem.py` | Used by both CLI and OpenClaw |
 
 ---
 
@@ -116,43 +141,43 @@ graph TB
 **The flow is:**
 
 ```
-You → Message → AGENTS.md Check → should_search()? 
-                                      ↓
-                             True: I call auto_recall()
-                                      ↓
-                              Results added to my context
-                                      ↓
-                              I respond with memory
+You → Message → OpenClaw → should_search() check → fmem Integration
+                                                      ↓
+                                            True: auto_recall() called
+                                                      ↓
+                                            Results added to OpenClaw context
+                                                      ↓
+                                            OpenClaw responds with memory
 ```
 
-**Key Characteristic:** **I decide when to search.** Your message triggers the check, but I actively call fmem only when patterns match.
+**Key Characteristic:** **OpenClaw decides when to search.** Your message triggers the check, but OpenClaw actively calls fmem only when patterns match.
 
 ### Future: Automatic Hook - Planned
 
-**Different approach:** OpenClaw would search **before** I see your message:
+**Different approach:** OpenClaw would search **before** processing your message:
 
 ```
 You → Message → OpenClaw Auto-Searches fmem → Injects results
                                               ↓
-                              I receive message + context
+                              OpenClaw receives message + context
                                               ↓
-                              I "just know" without deciding
+                              OpenClaw responds with "just knowing"
 ```
 
-**Key Difference:** **Automatic injection.** Every message gets searched, results injected if relevant. I don't decide—it's automatic.
+**Key Difference:** **Automatic injection.** Every message gets searched, results injected if relevant. OpenClaw doesn't decide—it's automatic.
 
 ### Comparison
 
 | Aspect | Current | Future Planned |
 |--------|--------|----------------|
-| **Who searches?** | I search after seeing message | OpenClaw searches before I see it |
-| **When does memory appear?** | After I decide to call fmem | Before I process message |
-| **Do I "just know"?** | ❌ No, I actively retrieve | ✅ Yes, it's in my context |
+| **Who searches?** | OpenClaw searches after seeing message | OpenClaw searches before seeing message |
+| **When does memory appear?** | After OpenClaw decides to call fmem | Before OpenClaw processes message |
+| **Does OpenClaw "just know"?** | ❌ No, actively retrieves | ✅ Yes, it's in context |
 | **Misses context?** | Possible if no trigger | Catches everything |
 | **Speed** | Fast | Slightly slower |
 | **Implementation** | ✅ Live now | 📋 Planned |
 
-**Bottom Line:** Current implementation requires me to **actively retrieve** when triggers match. Future would make memory **automatically present** in every conversation.
+**Bottom Line:** Current implementation requires OpenClaw to **actively retrieve** when triggers match. Future would make memory **automatically present** in every conversation.
 
 ---
 
@@ -174,7 +199,7 @@ You → Message → OpenClaw Auto-Searches fmem → Injects results
 ```markdown
 ## Memory Recall with fmem
 
-When the user mentions any of these triggers, automatically recall relevant information from fmem:
+When the user mentions any of these triggers, OpenClaw automatically recalls relevant information from fmem:
 
 ### Trigger Patterns (check with should_search())
 - "remember", "recall", "what about", "last week", "previous", "before"
@@ -183,10 +208,10 @@ When the user mentions any of these triggers, automatically recall relevant info
 
 ### Automatic Recall Procedure
 When triggers detected:
-1. Import: `from fmem import auto_recall, format_results`
-2. Search: `results = auto_recall(user_message, top_k=3, chunk_mode='chunk')`
-3. Format: `context = format_results(results, max_preview=150)`
-4. Inject: Add context to your response naturally
+1. OpenClaw imports: `from fmem import auto_recall, format_results`
+2. OpenClaw calls: `results = auto_recall(user_message, top_k=3, chunk_mode='chunk')`
+3. OpenClaw formats: `context = format_results(results, max_preview=150)`
+4. OpenClaw injects: Add context to your response naturally
 
 ### Important Notes
 - fmem is LOCAL (privacy-safe, no external APIs)
