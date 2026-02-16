@@ -13,7 +13,7 @@
 # Installation:
 #   crontab -e
 #   Paste the line below:
-#   */30 * * * * /home/luis/.local/bin/fmem index /home/luis/.openclaw/workspace/memory >> /home/luis/.openclaw/logs/fmem-index.log 2>&1
+#   */30 * * * * /usr/bin/python3 -c "from fmem.cli import main; main()" -- index /home/luis/.openclaw/workspace/memory >> /home/luis/.openclaw/logs/fmem-index.log 2>&1
 #
 # To edit your crontab:
 #   crontab -e
@@ -31,7 +31,7 @@
 # Runs every 30 minutes to index new/modified memory files
 # Requires fmem package to be installed: pip install -e . --break-system-packages
 # =============================================================================
-*/30 * * * * /home/luis/.local/bin/fmem index /home/luis/.openclaw/workspace/memory >> /home/luis/.openclaw/logs/fmem-index.log 2>&1
+*/30 * * * * /usr/bin/python3 -c "from fmem.cli import main; main()" -- index /home/luis/.openclaw/workspace/memory >> /home/luis/.openclaw/logs/fmem-index.log 2>&1
 
-# Alternative: If fmem is not in PATH, use full path:
-# */30 * * * * cd /home/luis/.openclaw/workspace && python3 -c "from src.fmem import MemoryRetrieval; m = MemoryRetrieval(); m.index_directory('memory')" >> /home/luis/.openclaw/logs/fmem-index.log 2>&1
+# Alternative: Direct Python API call (for debugging):
+# */30 * * * * /usr/bin/python3 -c "from fmem import MemoryRetrieval; m = MemoryRetrieval(); m.index_directory('/home/luis/.openclaw/workspace/memory')" >> /home/luis/.openclaw/logs/fmem-index.log 2>&1

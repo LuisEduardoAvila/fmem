@@ -22,8 +22,10 @@ dependencies = [
 fmem = "fmem.cli:main"
 
 [tool.setuptools]
-packages = ["fmem"]
 package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
 
 [tool.setuptools.package-data]
 fmem = ["py.typed"]
