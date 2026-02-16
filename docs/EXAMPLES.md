@@ -224,6 +224,6 @@ See [AGENTS.md](AGENTS.md) for complete trigger patterns.
 
 ## 🔗 Related
 
-- [AGENTS.md](../AGENTS.md) - Trigger patterns and integration
-- [README.md](../README.md) - Installation and usage
-- [README.md#🤖 Enable Agent Integration](../README.md#-enable-agent-integration) - First-time setup
+- [AGENTS.md](./AGENTS.md) - Trigger patterns and integration
+- [README.md](./README.md) - Installation and usage
+- [README.md#🤖 Enable Agent Integration](./README.md#-enable-agent-integration) - First-time setup
