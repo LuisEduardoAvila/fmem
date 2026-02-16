@@ -23,6 +23,24 @@ Usage:
 
 __version__ = "3.0.0"
 
+# Standard library imports
+import json
+import logging
+import os
+import sys
+import re
+import time
+import hashlib
+import datetime
+from pathlib import Path
+from typing import List, Dict, Optional, Tuple, Set
+from contextlib import contextmanager
+from collections import OrderedDict
+
+# Configuration management with environment variable support
+import configparser
+from functools import lru_cache
+
 # ============================================================================
 # Chunk Metadata Schema
 # ============================================================================
@@ -314,22 +332,6 @@ def _create_chunk(filename: str, heading: str, content: str,
 import faiss
 import numpy as np
 import sqlite3
-import json
-import os
-import sys
-import logging
-import datetime
-import hashlib
-import re
-import time
-from pathlib import Path
-from typing import List, Dict, Optional, Tuple, Set
-from contextlib import contextmanager
-from collections import OrderedDict
-
-# Configuration management with environment variable support
-import configparser
-from functools import lru_cache
 
 # Try to import litellm and use nomic-embed-text model (served by local Ollama)
 try:
@@ -367,6 +369,9 @@ class ConfigManager:
     # Maximum query length
     MAX_QUERY_LENGTH = 1000
     
+    # Maximum embedding content size (1MB)
+    MAX_EMBEDDING_SIZE = 1024 * 1024
+    
     # Maximum batch size
     MAX_BATCH_SIZE = 100
     
@@ -375,6 +380,7 @@ class ConfigManager:
     DEFAULT_RECENCY_WEIGHT = 0.3
     DEFAULT_RECENCY_THRESHOLD_DAYS = 30
     DEFAULT_MIN_RECENCY_SCORE = 0.1
+    DEFAULT_APPEND_ONLY_RECENCY_FACTOR = 0.33  # Reduce 30% → 10% for daily logs
     DEFAULT_ENABLE_LOCATION_RANKING = True
     DEFAULT_LOCATION_WEIGHT = 0.2
     
@@ -405,6 +411,7 @@ class ConfigManager:
                 self.recency_weight = self.config.getfloat('settings', 'recency_weight', fallback=self.DEFAULT_RECENCY_WEIGHT)
                 self.recency_threshold_days = self.config.getint('settings', 'recency_threshold_days', fallback=self.DEFAULT_RECENCY_THRESHOLD_DAYS)
                 self.min_recency_score = self.config.getfloat('settings', 'min_recency_score', fallback=self.DEFAULT_MIN_RECENCY_SCORE)
+                self.append_only_recency_factor = self.config.getfloat('settings', 'append_only_recency_factor', fallback=self.DEFAULT_APPEND_ONLY_RECENCY_FACTOR)
                 # Location-based ranking settings
                 self.enable_location_ranking = self.config.getboolean('settings', 'enable_location_ranking', fallback=self.DEFAULT_ENABLE_LOCATION_RANKING)
                 self.location_weight = self.config.getfloat('settings', 'location_weight', fallback=self.DEFAULT_LOCATION_WEIGHT)
@@ -657,12 +664,19 @@ class _LRUCache:
     
     def put(self, key: str, value: np.ndarray) -> None:
         """
-        Add item to cache with LRU eviction.
+        Add item to cache with LRU eviction and memory pressure checks.
         
         Args:
             key: Cache key (text hash)
             value: Embedding array
         """
+        # Check memory pressure before adding
+        if self._is_memory_pressure_high():
+            # Evict more aggressively under memory pressure
+            while len(self.cache) > int(self.maxsize * 0.7):
+                oldest_key = next(iter(self.cache))
+                self._evict(oldest_key)
+        
         # Evict expired entries if cache is full
         while len(self.cache) >= self.maxsize:
             oldest_key = next(iter(self.cache))
@@ -671,6 +685,36 @@ class _LRUCache:
         # Add new entry
         self.cache[key] = value
         self.timestamps[key] = time.time()
+    
+    def _is_memory_pressure_high(self, threshold_percent: float = 0.85) -> bool:
+        """
+        Check if system memory pressure is high.
+        
+        Args:
+            threshold_percent: Memory usage threshold (0.0-1.0)
+            
+        Returns:
+            True if memory pressure is high
+        """
+        try:
+            import psutil
+            mem_info = psutil.virtual_memory()
+            return mem_info.percent >= (threshold_percent * 100)
+        except ImportError:
+            # If psutil not available, check using /proc/meminfo
+            try:
+                with open('/proc/meminfo', 'r') as f:
+                    for line in f:
+                        if line.startswith('MemAvailable:'):
+                            available_kb = int(line.split()[1])
+                            total_kb = int(open('/proc/meminfo').read().split('\n')[0].split()[1])
+                            used_percent = 100 - (available_kb / total_kb) * 100
+                            return used_percent >= (threshold_percent * 100)
+            except Exception:
+                pass
+            
+            # Default to no pressure if we can't determine
+            return False
     
     def _evict(self, key: str) -> None:
         """Evict a single key from cache."""
@@ -761,6 +805,132 @@ def sanitize_path(filepath: str, base_dir: Optional[str] = None, config: ConfigM
     except (OSError, ValueError) as e:
         logger.warning(f"Invalid path '{filepath}': {e}")
         return None
+
+
+def is_safe_symlink(filepath: str, allowed_dirs: List[str] = None, config: ConfigManager = None) -> Tuple[bool, str]:
+    """
+    Check if a symlink is safe to follow.
+    
+    Args:
+        filepath: Path to check
+        allowed_dirs: List of allowed base directories
+        config: ConfigManager instance
+        
+    Returns:
+        Tuple of (is_safe: bool, reason: str)
+    """
+    if config is None:
+        config = CONFIG
+    
+    if allowed_dirs is None:
+        # Default allowed directories
+        allowed_dirs = [config.data_dir]
+    
+    try:
+        # Check if path is a symlink
+        if os.path.islink(filepath):
+            # Get the resolved path
+            resolved_path = os.path.realpath(filepath)
+            
+            # Check if resolved path is within allowed directories
+            for allowed_dir in allowed_dirs:
+                allowed_dir_resolved = os.path.realpath(allowed_dir)
+                try:
+                    # Check if resolved path is within allowed directory
+                    Path(resolved_path).relative_to(allowed_dir_resolved)
+                    return True, "Safe symlink within allowed directory"
+                except ValueError:
+                    # Not within this allowed directory, check next
+                    continue
+            
+            return False, f"Symlink resolves outside allowed directories"
+        
+        # Not a symlink, considered safe
+        return True, "Not a symlink"
+        
+    except OSError as e:
+        return False, f"Cannot resolve path: {e}"
+    except Exception as e:
+        return False, f"Error checking symlink: {e}"
+
+
+# ============================================================================
+# Rate Limiter for API Calls
+# ============================================================================
+
+class RateLimiter:
+    """
+    Thread-safe rate limiter using sliding window algorithm.
+    
+    Prevents Ollama API abuse by limiting requests within a time window.
+    """
+    
+    def __init__(self, max_requests: int = 10, window_seconds: int = 60):
+        """
+        Initialize rate limiter.
+        
+        Args:
+            max_requests: Maximum number of requests per window
+            window_seconds: Time window in seconds (default 60s)
+        """
+        self.max_requests = max_requests
+        self.window_seconds = window_seconds
+        self.requests = []  # List of request timestamps
+        self._lock = None  # Simplified - no threading in this codebase
+    
+    def _cleanup_expired(self) -> None:
+        """Remove expired request timestamps."""
+        current_time = time.time()
+        cutoff = current_time - self.window_seconds
+        self.requests = [req_time for req_time in self.requests if req_time > cutoff]
+    
+    def is_allowed(self) -> bool:
+        """
+        Check if a new request is allowed.
+        
+        Returns:
+            True if request is allowed, False if rate limited
+        """
+        self._cleanup_expired()
+        
+        if len(self.requests) >= self.max_requests:
+            return False
+        
+        return True
+    
+    def record_request(self) -> bool:
+        """
+        Record a new request.
+        
+        Returns:
+            True if request was recorded, False if rate limited
+        """
+        if not self.is_allowed():
+            return False
+        
+        self.requests.append(time.time())
+        return True
+    
+    def get_wait_time(self) -> float:
+        """
+        Get time to wait until next request is allowed.
+        
+        Returns:
+            Seconds to wait (0 if allowed now)
+        """
+        self._cleanup_expired()
+        
+        if len(self.requests) < self.max_requests:
+            return 0.0
+        
+        # Calculate wait time based on oldest request
+        oldest_request = min(self.requests)
+        wait_time = (oldest_request + self.window_seconds) - time.time()
+        return max(0.0, wait_time)
+    
+    def reset(self) -> None:
+        """Clear all request records."""
+        self.requests.clear()
 
 
 # ============================================================================
@@ -912,6 +1082,8 @@ class MemoryRetrieval:
         self.doc_metadata = []  # List of {filepath, content, last_modified}
         self.db_path = db_path or self.config.sqlite_path
         self.conn = None
+        # Rate limiter for Ollama API (10 requests per 60 seconds)
+        self.rate_limiter = RateLimiter(max_requests=10, window_seconds=60)
         # Embedding cache with TTL (1 hour) and LRU eviction (max 10000 entries)
         self.embedding_cache = _LRUCache(maxsize=10000, ttl=3600)
         
@@ -976,6 +1148,10 @@ class MemoryRetrieval:
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
+        # Create index for parent_file to speed up chunk lookups
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_parent_file ON chunks(parent_file)
+        """)
         self.conn.commit()
     
     def _load_index(self):
@@ -1026,12 +1202,48 @@ class MemoryRetrieval:
         except Exception as e:
             logger.error(f"Failed to load from database: {e}")
     
-    def _calculate_recency_score(self, last_modified: float) -> float:
+    def _is_append_only_file(self, filepath: str) -> bool:
+        """
+        Detect if file is append-only daily log.
+        
+        These files are updated frequently (high mtime) but contain accumulated
+        content, not freshly-written content. Recency weight is reduced to 
+        prevent old entries from appearing more recent than they are.
+        
+        Args:
+            filepath: Path to the file
+            
+        Returns:
+            True if file is a daily log (append-only), False otherwise
+        """
+        import os
+        
+        # Pattern: memory/YYYY-MM-DD.md or MEMORY.md
+        if filepath == 'MEMORY.md':
+            return True
+        
+        # Normalize path for checking
+        filepath_lower = os.path.normpath(filepath).lower()
+        path_parts = filepath_lower.split(os.sep)
+        
+        # Check if any path part is "memory" (our daily log directory)
+        if 'memory' in path_parts:
+            # Get the filename (last part of path)
+            filename = os.path.basename(filepath)
+            
+            # Check if filename matches date pattern YYYY-MM-DD.md
+            if re.search(r'\d{4}-\d{2}-\d{2}', filename):
+                return True
+        
+        return False
+    
+    def _calculate_recency_score(self, last_modified: float, filepath: str = None) -> float:
         """
         Calculate recency score for a document based on its modification time.
         
         Args:
             last_modified: Unix timestamp of last modification
+            filepath: Optional path to file for special handling
             
         Returns:
             Recency score between 0.0 and 1.0
@@ -1043,11 +1255,19 @@ class MemoryRetrieval:
         current_time = time.time()
         age_days = (current_time - last_modified) / (24 * 60 * 60)
         
+        # Get base recency weight
+        recency_weight = self.config.recency_weight
+        
+        # Reduce weight for append-only files (daily logs)
+        if filepath and self._is_append_only_file(filepath):
+            recency_weight *= self.config.append_only_recency_factor  # e.g., 30% → 10%
+        
         # If within threshold, calculate score based on age
         if age_days <= self.config.recency_threshold_days:
             # Exponential decay: newer documents get higher scores
             recency_score = 1.0 - (age_days / self.config.recency_threshold_days)
-            return max(recency_score, self.config.min_recency_score)
+            # Apply reduced weight for append-only files
+            return max(recency_score * recency_weight, self.config.min_recency_score)
         else:
             # Beyond threshold, apply minimum recency score
             return self.config.min_recency_score
@@ -1079,7 +1299,10 @@ class MemoryRetrieval:
             
             if doc_metadata:
                 # Calculate recency score
-                recency_score = self._calculate_recency_score(doc_metadata['last_modified'])
+                recency_score = self._calculate_recency_score(
+                    doc_metadata['last_modified'], 
+                    filepath
+                )
                 
                 # Apply hybrid scoring: semantic_score * (1 - recency_weight) + recency_score * recency_weight
                 semantic_score = result['score']
@@ -1200,14 +1423,21 @@ class MemoryRetrieval:
         return enhanced_results
     
     def _get_embedding(self, text: str) -> Optional[np.ndarray]:
-        """Get embedding from cache or generate new one."""
+        """Get embedding from cache or generate new one with rate limiting."""
         text_hash = hashlib.md5(text.encode()).hexdigest()
         
         if text_hash in self.embedding_cache:
             return self.embedding_cache[text_hash]
         
+        # Check rate limit before making API call
+        if not self.rate_limiter.is_allowed():
+            logger.warning("Rate limit exceeded for embedding generation")
+            return None
+        
         embedding = self.ollama.generate_embeddings([text])
         if embedding is not None:
+            # Record the successful request
+            self.rate_limiter.record_request()
             self.embedding_cache[text_hash] = embedding[0]
         
         return embedding[0] if embedding is not None else None
@@ -1353,6 +1583,12 @@ class MemoryRetrieval:
             
             filepath = safe_path
             
+            # Check symlink safety
+            is_safe, reason = is_safe_symlink(filepath, config=self.config)
+            if not is_safe:
+                logger.error(f"Unsafe symlink detected: {reason}")
+                return False
+            
             # Check file extension
             if not self.config.is_valid_extension(filepath):
                 logger.error(f"Invalid file extension: {filepath}")
@@ -1393,6 +1629,11 @@ class MemoryRetrieval:
             
             if len(content) > self.config.MAX_FILE_SIZE:
                 logger.error("Content too large")
+                return False
+            
+            # Verify content doesn't exceed embedding size limit
+            if len(content) > self.config.MAX_EMBEDDING_SIZE:
+                logger.error(f"Content exceeds embedding size limit: {len(content)} > {self.config.MAX_EMBEDDING_SIZE}")
                 return False
             
             # Generate embedding for main document
