@@ -23,17 +23,17 @@ fmem is a privacy-first memory system that makes AI conversations feel natural a
 
 ```mermaid
 graph LR
-    A[User Message] --> B[Trigger Detection<br/>should_search?]
-    B -->|Yes| C[fmem Integration<br/>auto_recall()]
+    A[User Message] --> B[Trigger Detection]
+    B -->|Yes| C[fmem Integration]
     B -->|No| D[Normal Response]
-    C --> E[Document Indexing<br/>FAISS + Metadata]
-    E --> F[Multi-Factor Search<br/>Semantic + Recency + Location]
-    F --> G[Contextual Response<br/>with Memory]
+    C --> E[Document Indexing]
+    E --> F[Multi-Factor Search]
+    F --> G[Contextual Response]
     G --> H[User]
     
     subgraph fmem System
-        E --> I[Chunk Indexing<br/>Split by ## Headings]
-        I --> J[Vector Database<br/>FAISS Index]
+        E --> I[Chunk Indexing]
+        I --> J[Vector Database]
         J --> K[Multi-Factor Scoring]
     end
 ```
