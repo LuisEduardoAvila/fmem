@@ -2052,39 +2052,72 @@ class MemoryRetrieval:
         """Get list of all indexed document paths."""
         return [doc['filepath'] for doc in self.doc_metadata]
     
-    def index_directory(self, directory: str, recursive: bool = True) -> int:
+    def index_directory(self, directory: str, recursive: bool = True, base_dir: Optional[str] = None) -> int:
         """
         Index all valid files in a directory.
         
         Args:
             directory: Path to directory to index
             recursive: Whether to index subdirectories recursively
+            base_dir: Optional base directory for path validation (defaults to directory's parent)
             
         Returns:
             Number of files successfully indexed
+            
+        Raises:
+            ValueError: If directory doesn't exist or path traversal attempted
         """
         import glob
         
-        directory = Path(directory).resolve()
-        if not directory.exists():
+        # Resolve and validate directory path - SECURE: resolve symlinks and make absolute
+        directory_path = Path(directory).resolve()
+        
+        if not directory_path.exists():
             raise ValueError(f"Directory does not exist: {directory}")
         
-        if not directory.is_dir():
+        if not directory_path.is_dir():
             raise ValueError(f"Not a directory: {directory}")
         
-        # Find all valid files
-        extensions_pattern = '|'.join(self.config.VALID_EXTENSIONS)
-        if recursive:
-            pattern = f"{directory}**/*({extensions_pattern})"
-            files = glob.glob(str(directory / "**" / "*"), recursive=True)
+        # SECURITY: Validate resolved path is not a symlink to prevent traversal
+        if directory_path != Path(os.path.realpath(directory_path)):
+            raise ValueError(f"Directory path contains symlinks: {directory}")
+        
+        # Set base directory for secure path validation
+        if base_dir is None:
+            # Use parent of directory for safer validation, or directory itself if at root
+            base_dir_path = directory_path.parent if directory_path.parent != directory_path else directory_path
         else:
-            files = glob.glob(str(directory / "*"))
+            base_dir_path = Path(base_dir).resolve()
+        
+        # SECURITY: Validate directory is within or equals base_dir
+        try:
+            directory_path.relative_to(base_dir_path)
+        except ValueError:
+            raise ValueError(f"Directory {directory_path} is outside base directory {base_dir_path}")
+        
+        logger.info(f"Indexing directory: {directory_path} (base: {base_dir_path})")
+        
+        # Find all valid files
+        if recursive:
+            files = glob.glob(str(directory_path / "**" / "*"), recursive=True)
+        else:
+            files = glob.glob(str(directory_path / "*"))
         
         # Filter to valid files
-        valid_files = [
-            f for f in files 
-            if Path(f).is_file() and Path(f).suffix.lower() in self.config.VALID_EXTENSIONS
-        ]
+        valid_files = []
+        for f in files:
+            file_path = Path(f)
+            if file_path.is_file():
+                # SECURITY: Re-check each file is within allowed path
+                try:
+                    resolved_path = file_path.resolve()
+                    resolved_path.relative_to(base_dir_path)
+                    if file_path.suffix.lower() in self.config.VALID_EXTENSIONS:
+                        valid_files.append(f)
+                except (ValueError, RuntimeError):
+                    # File outside base_dir or resolution error - skip
+                    logger.warning(f"Skipping file outside base directory: {f}")
+                    continue
         
         # Index files
         success_count = 0
@@ -2094,6 +2127,29 @@ class MemoryRetrieval:
             try:
                 abs_path = str(Path(filepath).resolve())
                 self.add_document(abs_path)
+                success_count += 1
+            except Exception as e:
+                logger.warning(f"Failed to index {filepath}: {e}")
+                failed_files.append(filepath)
+        
+        # Persist changes
+        self.persist()
+        
+        if failed_files:
+            logger.info(f"Indexed {success_count} files, failed {len(failed_files)}")
+        else:
+            logger.info(f"Indexed {success_count} files")
+        
+        return success_count
+        for filepath in valid_files:
+            try:
+                abs_path = str(Path(filepath).resolve())
+                safe_path = sanitize_path(abs_path, base_dir=base_dir, config=self.config)
+                if safe_path is None:
+                    logger.warning(f"Invalid path: {abs_path}")
+                    failed_files.append(abs_path)
+                    continue
+                self.add_document(safe_path)
                 success_count += 1
             except Exception as e:
                 logger.warning(f"Failed to index {filepath}: {e}")

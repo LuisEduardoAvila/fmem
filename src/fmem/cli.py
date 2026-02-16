@@ -12,8 +12,9 @@ def cmd_index(args):
     """Index a directory of files."""
     try:
         memory = fmem.MemoryRetrieval()
-        directory = Path(args.directory)
+        directory = Path(args.directory).resolve()
         
+        # SECURITY: Resolve and validate directory (prevents traversal)
         if not directory.exists():
             print(f"Error: Directory '{directory}' does not exist", file=sys.stderr)
             sys.exit(1)
@@ -22,10 +23,16 @@ def cmd_index(args):
             print(f"Error: '{directory}' is not a directory", file=sys.stderr)
             sys.exit(1)
         
-        print(f"Indexing {directory}...")
-        memory.index_directory(str(directory))
-        print(f"✓ Indexed {directory}")
+        # Use parent as base_dir for security validation, or directory if at root
+        base_dir = directory.parent if directory.parent != directory else directory
         
+        print(f"Indexing {directory}...")
+        count = memory.index_directory(str(directory), base_dir=str(base_dir))
+        print(f"✓ Indexed {count} files from {directory}")
+        
+    except ValueError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
     except Exception as e:
         print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)
