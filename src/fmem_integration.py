@@ -21,17 +21,8 @@ from typing import Set, Dict
 # Set up logging first
 logger = logging.getLogger(__name__)
 
-# Get workspace from environment variable with proper fallback
-workspace = os.environ.get('FMEM_WORKSPACE')
-if not workspace:
-    # Warn but continue - don't hardcode paths
-    workspace = '~/.openclaw/workspace'
-    logger.warning(f"FMEM_WORKSPACE not set, using fallback: {workspace}")
-darthspud_dir = os.path.join(workspace, 'DarthSpud')
-if darthspud_dir not in sys.path:
-    sys.path.insert(0, darthspud_dir)
-
-from fmem import MemoryRetrieval
+# Import from same package (src/)
+from .fmem import MemoryRetrieval
 
 # Singleton memory instance
 _memory = None
