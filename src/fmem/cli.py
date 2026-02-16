@@ -45,12 +45,8 @@ def cmd_index(args):
             # Build list of directories to index
             directories = []
             
-            # Add data_dir (primary memory directory)
-            data_dir = config.data_dir
-            if data_dir:
-                directories.append(data_dir)
-            
             # Add additional directories from config
+            # Note: data_dir is for index storage only, not content indexing
             if hasattr(config, 'additional_dirs') and config.additional_dirs:
                 additional = [d.strip() for d in config.additional_dirs.split(',') if d.strip()]
                 directories.extend(additional)
@@ -63,7 +59,6 @@ def cmd_index(args):
             if not directories:
                 print("Error: No directories configured for indexing", file=sys.stderr)
                 print("Configure directories in fmem.conf:", file=sys.stderr)
-                print("  - Set data_dir (primary memory directory)", file=sys.stderr)
                 print("  - Set additional_dirs (comma-separated list)", file=sys.stderr)
                 sys.exit(1)
             
