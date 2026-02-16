@@ -237,7 +237,7 @@ python3 benchmark/mcp-vs-direct.py
   "mcpServers": {
     "fmem": {
       "command": "node",
-      "args": ["/home/luis/.openclaw/workspace/projects/fmem/mcp-wrapper/dist/server.js"]
+      "args": ["$PROJECT_ROOT/mcp-wrapper/dist/server.js"]
     }
   }
 }

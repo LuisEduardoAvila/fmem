@@ -200,6 +200,23 @@ Query String
 └──────────────┘
 ```
 
+**Mermaid Visualization:**
+
+```mermaid
+flowchart LR
+    A[User Query] --> B[Query Embedding]
+    B --> C[FAISS Search]
+    C --> D[Raw Results]
+    D --> E[Multi-Factor Scoring]
+    E --> F[Recency Boost]
+    F --> G[Location Boost]
+    G --> H[Final Ranking]
+    H --> I[Top-k Results]
+    
+    style E fill:#f9f, stroke:#333
+    note right of E: Semantic: 50%\nRecency: 30%\nLocation: 20%
+```
+
 ## Security Architecture
 
 ### Defense in Depth
@@ -365,7 +382,40 @@ class CustomMemoryRetrieval(MemoryRetrieval):
 
 ## Future Architecture (MCP Phase)
 
+**Mermaid Visualization:**
+
+```mermaid
+graph TB
+    subgraph Input [User Input]
+        A[Query]
+    end
+    
+    subgraph OpenClaw [OpenClaw Integration]
+        B[should_search?]
+        C[auto_recall]
+    end
+    
+    subgraph Core [fmem Core]
+        D[MemoryRetrieval]
+        E[Chunk Index]
+        F[FAISS Index]
+        G[SQLite DB]
+    end
+    
+    subgraph Output [Results]
+        H[Ranked Context]
+    end
+    
+    A --> B
+    B -->|Triggers| C
+    C --> D
+    D --> E
+    D --> F
+    D --> G
+    D --> H
 ```
+
+**ASCII Visualization:**
 ┌─────────────────────────────────────────────────────────────────────────┐
 │                         Universal Clients                               │
 │  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐ │
@@ -395,6 +445,6 @@ class CustomMemoryRetrieval(MemoryRetrieval):
 
 ---
 
-**Last Updated:** 2026-02-15  
+**Last Updated:** 2026-02-16  
 **Version:** 3.0.0  
 **Architecture Owner:** fmem Development Team

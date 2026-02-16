@@ -307,6 +307,5 @@
 
 ---
 
-**Maintainer:** Luis Eduardo Avila  
-**Last Review:** 2026-02-15  
+**Last Review:** 2026-02-16  
 **Next Review:** 2026-03-01 (after 2 weeks Option 1 usage)

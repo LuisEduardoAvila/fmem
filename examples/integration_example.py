@@ -23,7 +23,7 @@ def test_integration():
         "What were my preferences for the agent setup?",
         "Look up my recent interactions with Luis",
         "Find information about the workspace configuration",
-        "Tell me about the DarthSpud project structure",
+        "Tell me about the workspace project structure",
         "Hello, how are you?"  # This should not trigger search
     ]
     

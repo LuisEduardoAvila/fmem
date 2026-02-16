@@ -19,13 +19,25 @@ fmem is a privacy-first memory system that makes AI conversations feel natural a
 - **~57% token reduction** — Less noise, more signal in context windows
 - **Natural conversation flow** — References that feel contextual, not robotic
 
+**Multi-Factor Ranking:** Beyond simple similarity, fmem scores results by:
+- **Semantic (50%):** FAISS vector similarity
+- **Recency (30%):** Time-based decay based on file modification time  
+- **Location/Categorical (20%):** Directory importance (docs: 1.5×, projects: 1.3×, chats: 0.8×)
+
+```mermaid
+pie title Multi-Factor Weighting
+    "Semantic Similarity" : 50
+    "Recency" : 30
+    "Location/Categorical" : 20
+```
+
 ---
 
 ## Project Structure
 
 ```
 projects/fmem/
-├── src/                    # Core source code (from DarthSpud/fmem/)
+├── src/                    # Core source code
 ├── docs/                   # Documentation
 ├── tests/                  # Test suite
 ├── examples/               # Usage examples
@@ -144,12 +156,13 @@ Agent: (detects triggers → auto_recall() → responds with context)
 - [x] OpenClaw integration
 - [x] Security hardening
 
-### Phase 2: Enhanced Features (🎉 In Progress)
+### Phase 2: Enhanced Features (✅ 80% Complete)
 - [x] AGENTS.md memory integration
+- [x] Security hardening (score: 8/10)
+- [x] Documentation (INSTALLATION.md, API.md)
 - [ ] Async support for non-blocking retrieval
 - [ ] Incremental re-indexing (file watching)
 - [ ] Cross-document chunk relationships
-- [ ] Learnable ranking weights
 
 ### Phase 3: MCP Wrapper (Future)
 - [ ] MCP server implementation
@@ -190,8 +203,7 @@ Agent: (detects triggers → auto_recall() → responds with context)
 
 ---
 
-**Last Updated:** 2026-02-16  
-**Maintainer:** Luis Eduardo Avila
+**Last Updated:** 2026-02-16
 
 ---
 
@@ -200,7 +212,7 @@ Agent: (detects triggers → auto_recall() → responds with context)
 | Phase | Status | Details |
 |-------|--------|---------|
 | Phase 1: Core Stability | ✅ Complete | FAISS, chunk indexing, ranking, security hardening |
-| Phase 2: Enhanced Features | 🔄 In Progress | AGENTS.md integration done, async/ Incremental indexing pending |
+| Phase 2: Enhanced Features | ✅ 80% Complete | AGENTS.md integration done, async/incremental indexing pending |
 
 **Changes in this update:**
 - ✅ Rewrote intro to emphasize natural conversation and precise memory retrieval
