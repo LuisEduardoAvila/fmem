@@ -78,9 +78,9 @@ projects/fmem/
 ```mermaid
 graph TB
     subgraph CLI Operations
-        A[fmem index] --> B[Auto-index configured dirs]
-        C[fmem search "query"] --> D[Find relevant memory]
-        E[fmem status] --> F[Check index health]
+        A[fmem index] --> B[Auto-index]
+        C[fmem search] --> D[Find memory]
+        E[fmem status] --> F[Check health]
     end
     
     subgraph Integration Operations
@@ -96,10 +96,6 @@ graph TB
         O[Chunk Indexing] --> N
         P[Multi-Factor Scoring] --> Q[Results]
     end
-    
-    style CLI Operations fill:#f9f,stroke:#333,stroke-width:2px
-    style Integration Operations fill:#9cf,stroke:#333,stroke-width:2px
-    style fmem Package fill:#cfc,stroke:#333,stroke-width:2px
 ```
 
 ### Components
