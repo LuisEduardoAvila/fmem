@@ -190,7 +190,6 @@ Agent: (detects triggers → auto_recall() → responds with context)
 ## Related Repositories
 
 - **fmem:** Public fmem package (github.com/LuisEduardoAvila/fmem)
-- **SmartSpud:** Full workspace backup (github.com/LuisEduardoAvila/SmartSpud)
 
 ---
 
