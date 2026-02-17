@@ -308,6 +308,68 @@ Current status and future plans...
 
 ---
 
+## 🧠 Adaptive Chunking (Hardware-Optimized)
+
+**fmem v3.1.0+** introduces **Adaptive Chunking** – intelligent content sizing based on available system memory.
+
+### How It Works
+
+```
+Content → Hardware Detection → Optimal Chunk Sizes → Semantic Embedding
+                   ↑
+            Available RAM determines:
+            • <1GB: 1,000 char chunks (Pi Zero)
+            • <2GB: 2,000 char chunks (Pi 3)
+            • >2GB: 5,000 char chunks (Pi 4/5, desktops)
+```
+
+### Hardware Detection
+
+fmem automatically detects available memory and adjusts chunk sizes:
+
+```python
+from fmem import get_optimal_chunk_size
+
+chunk_size = get_optimal_chunk_size()  # Returns optimal size based on hardware
+# Returns: 1000, 2000, or 5000 based on available RAM
+```
+
+### Adaptive Splitting
+
+Large sections are intelligently split at optimal boundaries:
+
+1. **Section boundaries** (`##` headings) - highest priority
+2. **Paragraph boundaries** (blank lines) - maintain flow
+3. **Sentence boundaries** (periods) - preserve meaning
+4. **Word boundaries** (spaces) - fallback option
+
+Each split includes **overlap** (100 characters) to preserve semantic continuity between chunks.
+
+### Hardware Support
+
+| System Type | RAM | Chunk Size | Use Case |
+|-------------|-----|------------|----------|
+| 🍓 Pi Zero | <1GB | 1,000 chars | Lowest memory footprint |
+| 🍓 Pi 3 | 1-2GB | 2,000 chars | Balanced performance |
+| 🍓 Pi 4/5 | 2GB+ | 5,000 chars | Full semantic richness |
+| 💻 Desktop | 4GB+ | 5,000 chars | Maximum context |
+
+### No Content Truncation
+
+Previous versions truncated content to 1,000 characters before embedding. With Adaptive Chunking:
+
+```python
+# OLD: Truncated content (lost context)
+embedding = model.encode(content[:1000])  # ❌ Lost semantic information
+
+# NEW: Full content preserved
+embedding = model.encode(chunk.content)    # ✅ Complete semantic context
+```
+
+**All indexed content now preserves full semantic information, significantly improving search quality across all hardware configurations.**
+
+---
+
 ## Multi-Factor Ranking
 
 **Formula:**

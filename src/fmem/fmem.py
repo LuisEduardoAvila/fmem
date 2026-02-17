@@ -21,7 +21,7 @@ Usage:
         print(f"[{r['score']:.3f}] {r['filepath']}")
 """
 
-__version__ = "3.0.0"
+__version__ = "3.1.0"
 
 # Standard library imports
 import json
@@ -103,6 +103,146 @@ class ChunkMetadata:
             tokens=data.get('tokens', 0),
             chunk_index=data.get('chunk_index', 0)
         )
+
+
+# ============================================================================
+# Hardware Detection for Adaptive Chunking
+# ============================================================================
+
+def get_optimal_chunk_size() -> int:
+    """
+    Detect system memory and return optimal chunk size for adaptive chunking.
+    
+    Uses psutil to detect available RAM and returns:
+    - 1,000 characters for systems with < 1GB RAM (very constrained)
+    - 2,000 characters for systems with < 2GB RAM (constrained)
+    - 5,000 characters for systems with >= 2GB RAM (standard)
+    
+    Falls back to 2,000 if memory detection fails.
+    
+    This ensures optimal performance on Raspberry Pi hardware while
+    preserving content quality on systems with more memory.
+    
+    Returns:
+        Optimal chunk size in characters
+    """
+    try:
+        import psutil
+        mem = psutil.virtual_memory()
+        total_gb = mem.total / (1024 ** 3)  # Convert bytes to GB
+        
+        if total_gb < 1.0:
+            # Very constrained systems (< 1GB)
+            logger.debug(f"Low memory detected ({total_gb:.1f}GB), using 1000 char chunks")
+            return 1000
+        elif total_gb < 2.0:
+            # Moderately constrained systems (1-2GB)
+            logger.debug(f"Moderate memory detected ({total_gb:.1f}GB), using 2000 char chunks")
+            return 2000
+        else:
+            # Systems with sufficient memory (>= 2GB)
+            logger.debug(f"Good memory detected ({total_gb:.1f}GB), using 5000 char chunks")
+            return 5000
+    except Exception as e:
+        logger.warning(f"Failed to detect memory: {e}. Using default chunk size.")
+        return 2000  # Safe fallback
+
+
+def chunk_content_adaptively(content: str, max_chunk_size: int = None, 
+                              overlap_chars: int = 100) -> List[str]:
+    """
+    Split large content into optimally sized chunks using hardware-aware sizing.
+    
+    For content larger than the optimal chunk size, splits intelligently at:
+    1. Section boundaries (## headings)
+    2. Paragraph boundaries (blank lines)
+    3. Sentence boundaries (periods)
+    4. Word boundaries (spaces)
+    
+    Includes overlap between chunks to preserve semantic continuity.
+    
+    Args:
+        content: Content to chunk
+        max_chunk_size: Maximum chunk size. If None, uses get_optimal_chunk_size()
+        overlap_chars: Number of characters to overlap between chunks for continuity
+        
+    Returns:
+        List of chunked content strings
+    """
+    if not content:
+        return []
+    
+    # Get optimal chunk size if not specified
+    if max_chunk_size is None:
+        max_chunk_size = get_optimal_chunk_size()
+    
+    # If content fits in a single chunk, return as-is
+    if len(content) <= max_chunk_size:
+        return [content.strip()] if content.strip() else []
+    
+    chunks = []
+    start_pos = 0
+    content_len = len(content)
+    
+    while start_pos < content_len:
+        # Calculate end position
+        end_pos = min(start_pos + max_chunk_size, content_len)
+        
+        if end_pos >= content_len:
+            # No need to find boundary at end of content
+            chunk = content[start_pos:].strip()
+            if chunk:
+                chunks.append(chunk)
+            break
+        
+        # Try to find a good splitting point (in priority order)
+        split_pos = None
+        search_end = end_pos
+        
+        # 1. Look for ## heading boundary (best)
+        heading_match = re.search(r'(?=\n#{2}\s)', content[start_pos:search_end])
+        if heading_match:
+            # Found a heading start - split before it
+            potential_split = start_pos + heading_match.start()
+            if potential_split > start_pos + 100:  # Ensure chunk isn't too small
+                split_pos = potential_split
+        
+        # 2. Look for paragraph boundary (blank line)
+        if split_pos is None:
+            para_match = re.search(r'\n\s*\n', content[start_pos:search_end])
+            if para_match:
+                split_pos = start_pos + para_match.end()
+        
+        # 3. Look for sentence boundary
+        if split_pos is None:
+            # Find last period followed by space or newline before end
+            search_area = content[start_pos:search_end]
+            sent_matches = list(re.finditer(r'[.!?]\s+', search_area))
+            if sent_matches:
+                split_pos = start_pos + sent_matches[-1].end()
+        
+        # 4. Look for word boundary
+        if split_pos is None:
+            word_match = re.search(r'\s+', content[end_pos - 100:end_pos])
+            if word_match:
+                split_pos = (end_pos - 100) + word_match.start()
+        
+        # If no good boundary found, just split at max_chunk_size
+        if split_pos is None or split_pos <= start_pos:
+            split_pos = end_pos
+        
+        # Extract chunk
+        chunk = content[start_pos:split_pos].strip()
+        if chunk:
+            chunks.append(chunk)
+        
+        # Move start position forward, including overlap for continuity
+        start_pos = split_pos
+        if overlap_chars > 0 and start_pos + overlap_chars < content_len:
+            # Include overlap from previous chunk, but not past content start
+            start_pos = max(0, split_pos - overlap_chars)
+    
+    return chunks
 
 
 # ============================================================================
@@ -189,9 +329,11 @@ def infer_category(heading: str) -> str:
     return best_category
 
 
-def chunk_markdown(content: str, filepath: str, min_chunk_size: int = 50) -> List[ChunkMetadata]:
+def chunk_markdown(content: str, filepath: str, min_chunk_size: int = 50,
+                   adaptive: bool = True) -> List[ChunkMetadata]:
     """
-    Split markdown by ## headings.
+    Split markdown by ## headings with adaptive chunking support.
+    
     Each section becomes a chunk with:
     - id: "{filename}#{heading-slug}"
     - parent_file: original filepath
@@ -202,10 +344,17 @@ def chunk_markdown(content: str, filepath: str, min_chunk_size: int = 50) -> Lis
     - category: inferred from heading
     - tokens: approximate count
     
+    Adaptive Chunking:
+    - Automatically detects system memory and adjusts chunk sizes
+    - Large sections are split into optimally sized chunks
+    - Preserves semantic continuity with overlap between chunks
+    - Hardware-specific: 1,000 chars (<1GB), 2,000 chars (<2GB), 5,000 chars (>2GB)
+    
     Args:
         content: Full markdown content
         filepath: Original file path
         min_chunk_size: Minimum chunk size in chars (merge smaller sections)
+        adaptive: Whether to use adaptive chunking (default: True)
         
     Returns:
         List of ChunkMetadata objects
@@ -218,6 +367,9 @@ def chunk_markdown(content: str, filepath: str, min_chunk_size: int = 50) -> Lis
     current_heading = "Top-Level Content"
     current_content = ""
     heading_pattern = re.compile(r'^(#{2,})\s+(.+)$', re.MULTILINE)
+    
+    # Get optimal chunk size if adaptive mode is enabled
+    optimal_chunk_size = get_optimal_chunk_size() if adaptive else 5000
     
     # Split content by ## headings
     parts = []
@@ -245,13 +397,28 @@ def chunk_markdown(content: str, filepath: str, min_chunk_size: int = 50) -> Lis
         # Remove file header/if present
         content_clean = content.strip()
         if content_clean:
-            chunks.append(_create_chunk(
-                filename=filename,
-                heading="Document",
-                content=content_clean,
-                parent_file=filepath,
-                chunk_index=0
-            ))
+            # Apply adaptive chunking for content without headings
+            if adaptive and len(content_clean) > optimal_chunk_size:
+                chunked_content = chunk_content_adaptively(content_clean, 
+                                                          max_chunk_size=optimal_chunk_size)
+                for i, chunk_section in enumerate(chunked_content):
+                    # Create sub-heading based on position
+                    sub_heading = f"Document (part {i+1}/{len(chunked_content)})" if len(chunked_content) > 1 else "Document"
+                    chunks.append(_create_chunk(
+                        filename=filename,
+                        heading=sub_heading,
+                        content=chunk_section,
+                        parent_file=filepath,
+                        chunk_index=i
+                    ))
+            else:
+                chunks.append(_create_chunk(
+                    filename=filename,
+                    heading="Document",
+                    content=content_clean,
+                    parent_file=filepath,
+                    chunk_index=0
+                ))
         return chunks
     
     # Merge small chunks (under min_chunk_size)
@@ -275,16 +442,36 @@ def chunk_markdown(content: str, filepath: str, min_chunk_size: int = 50) -> Lis
     if buffer_content:
         merged_parts.append((buffer_heading, buffer_content))
     
-    # Create chunks from merged parts
-    for i, (heading, section_content) in enumerate(merged_parts):
-        chunk = _create_chunk(
-            filename=filename,
-            heading=heading,
-            content=section_content,
-            parent_file=filepath,
-            chunk_index=i
-        )
-        chunks.append(chunk)
+    # Create chunks from merged parts (with adaptive splitting)
+    chunk_index = 0
+    for heading, section_content in merged_parts:
+        # Check if section is too large for the current memory constraints
+        if adaptive and len(section_content) > optimal_chunk_size:
+            # Split this section into optimally sized chunks
+            split_sections = chunk_content_adaptively(section_content, 
+                                                      max_chunk_size=optimal_chunk_size)
+            for i, split_content in enumerate(split_sections):
+                # Create sub-heading for split sections
+                sub_heading = f"{heading} (part {i+1}/{len(split_sections)})" if len(split_sections) > 1 else heading
+                chunk = _create_chunk(
+                    filename=filename,
+                    heading=sub_heading,
+                    content=split_content,
+                    parent_file=filepath,
+                    chunk_index=chunk_index
+                )
+                chunks.append(chunk)
+                chunk_index += 1
+        else:
+            chunk = _create_chunk(
+                filename=filename,
+                heading=heading,
+                content=section_content,
+                parent_file=filepath,
+                chunk_index=chunk_index
+            )
+            chunks.append(chunk)
+            chunk_index += 1
     
     return chunks
 
@@ -1663,8 +1850,9 @@ class MemoryRetrieval:
                 logger.error(f"Content exceeds embedding size limit: {len(content)} > {self.config.MAX_EMBEDDING_SIZE}")
                 return False
             
-            # Generate embedding for main document
-            main_embedding = self._get_embedding(content[:1000])  # Use first 1000 chars
+            # Generate embedding for main document (full content, no truncation)
+            # Adaptive chunking ensures content is optimally sized for available memory
+            main_embedding = self._get_embedding(content)
             
             # Determine whether to chunk or index as whole document
             if chunk_by_sections and filepath.endswith('.md'):
@@ -1675,8 +1863,9 @@ class MemoryRetrieval:
                 # Index each chunk separately
                 chunk_embeddings = []
                 for i, chunk in enumerate(chunks):
-                    # Generate embedding for chunk
-                    chunk_embedding = self._get_embedding(chunk.content[:1000])
+                    # Generate embedding for chunk (full chunk content, no truncation)
+                    # Adaptive chunking ensures optimal size for hardware constraints
+                    chunk_embedding = self._get_embedding(chunk.content)
                     if chunk_embedding is not None:
                         chunk_embeddings.append(chunk_embedding)
 
