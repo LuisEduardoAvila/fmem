@@ -223,6 +223,36 @@ When triggers detected:
 
 **Note:** This content needs to be added to your AGENTS.md file for full integration.
 
+## 📝 Memory Structure Guidelines
+
+For optimal fmem search performance, structure your memory files with ## headings:
+
+### Good Structure
+```markdown
+## Work Updates
+I worked on fmem documentation today. The indexing process is really interesting...
+
+## System Fixes  
+I fixed the cron job to run silently every 3 hours. The incremental updates work well.
+
+## User Questions
+The user asked great questions about compatibility and headings.
+```
+
+### Why This Matters
+- **Better chunking**: Each ## heading becomes a separate chunk for semantic search
+- **More targeted results**: Search queries return relevant sections, not entire files
+- **Improved accuracy**: Semantic search works better with smaller, focused chunks
+- **Better performance**: Less content to embed = faster indexing
+
+### When to Add Headings
+- **Daily files**: Add ## sections for different topics/projects
+- **Notes**: Structure by project or subject area
+- **Decisions**: Separate by decision type or timeframe
+- **Projects**: Use ## for different phases or features
+
+**Note**: Files without ## headings will be treated as single chunks, reducing search effectiveness.
+
 ---
 
 ## Multi-Factor Ranking
