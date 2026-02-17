@@ -223,11 +223,13 @@ When triggers detected:
 
 **Note:** This content needs to be added to your AGENTS.md file for full integration.
 
-## 📝 Memory Structure Guidelines
+## 📝 Content Structure Guidelines for fmem
 
-For optimal fmem search performance, structure your memory files with ## headings:
+For optimal fmem search performance across all indexed content, structure your files with ## headings:
 
-### Good Structure
+### Good Structure Examples
+
+**Memory Files (`memory/`):**
 ```markdown
 ## Work Updates
 I worked on fmem documentation today. The indexing process is really interesting...
@@ -237,6 +239,48 @@ I fixed the cron job to run silently every 3 hours. The incremental updates work
 
 ## User Questions
 The user asked great questions about compatibility and headings.
+```
+
+**Notes (`notes/`):**
+```markdown
+## Project Documentation
+fmem documentation improvements completed...
+
+## System Architecture  
+Cron job integration working well...
+
+## Research Findings  
+Memory search vs fmem analysis complete...
+```
+
+**Decisions (`decisions/`):**
+```markdown
+## Technical Decisions
+- Switched to 3-hour cron schedule
+- Added rate limiting for Ollama API
+
+## Project Roadmap  
+- Phase 1: Core stability ✅
+- Phase 2: Enhanced features 🔄
+
+## Budget Decisions
+- Approved fmem development time
+- Resources allocated for testing...
+```
+
+**Project READMEs (`projects/*/README.md`):**
+```markdown
+## Overview
+fmem provides contextual memory for AI conversations...
+
+## Installation
+Setup with pip install and configuration...
+
+## Usage Examples
+Command-line usage and integration examples...
+
+## Development Roadmap
+Current status and future plans...
 ```
 
 ### Why This Matters
@@ -250,8 +294,17 @@ The user asked great questions about compatibility and headings.
 - **Notes**: Structure by project or subject area
 - **Decisions**: Separate by decision type or timeframe
 - **Projects**: Use ## for different phases or features
+- **Documentation**: Organize by sections (Overview, Installation, Usage, etc.)
 
-**Note**: Files without ## headings will be treated as single chunks, reducing search effectiveness.
+### Applies To All fmem-Indexed Content:
+- ✅ `memory/` - Daily memory logs
+- ✅ `notes/` - Documentation and research notes
+- ✅ `decisions/` - Project and technical decisions
+- ✅ `docs/` - Architectural documentation
+- ✅ `projects/*/README.md` - Project README files
+- ✅ Any custom directories in `additional_dirs`
+
+**Note**: Files without ## headings will be treated as single chunks, reducing search effectiveness across all fmem-indexed content.
 
 ---
 
