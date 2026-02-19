@@ -121,61 +121,45 @@ class ChunkMetadata:
 
 def get_optimal_chunk_size() -> int:
     """
-    Detect system memory and return optimal chunk size for adaptive chunking.
+    Return optimal chunk size based on embedding model token limits.
     
-    Uses psutil to detect available RAM and returns:
-    - 1,000 characters for systems with < 1GB RAM (very constrained)
-    - 2,000 characters for systems with < 2GB RAM (constrained)
-    - 5,000 characters for systems with >= 2GB RAM (standard)
+    Uses all-minilm:22m which has:
+    - context length: 512 tokens (~200-800 chars depending on text)
+    - embedding length: 384 dimensions
     
-    Falls back to 2,000 if memory detection fails.
+    Conservative limit: 800 characters to fit safely within 512 tokens.
+    Hardware RAM doesn't matter - the embedding model is the bottleneck.
     
-    This ensures optimal performance on Raspberry Pi hardware while
-    preserving content quality on systems with more memory.
+    The _get_embedding() call preprocesses content to ~500 chars anyway,
+    so chunks larger than 800 are redundant for semantic search.
     
     Returns:
-        Optimal chunk size in characters
+        Optimal chunk size in characters (800)
     """
-    try:
-        import psutil
-        mem = psutil.virtual_memory()
-        total_gb = mem.total / (1024 ** 3)  # Convert bytes to GB
-        
-        if total_gb < 1.0:
-            # Very constrained systems (< 1GB)
-            logger.debug(f"Low memory detected ({total_gb:.1f}GB), using 1000 char chunks")
-            return 1000
-        elif total_gb < 2.0:
-            # Moderately constrained systems (1-2GB)
-            logger.debug(f"Moderate memory detected ({total_gb:.1f}GB), using 2000 char chunks")
-            return 2000
-        else:
-            # Systems with sufficient memory (>= 2GB)
-            logger.debug(f"Good memory detected ({total_gb:.1f}GB), using 5000 char chunks")
-            return 5000
-    except Exception as e:
-        logger.warning(f"Failed to detect memory: {e}. Using default chunk size.")
-        return 2000  # Safe fallback
+    # Fixed at 800 chars - based on all-minilm:22m's 512 token context limit
+    # Not adaptive by design - the embedding model constrains us, not RAM
+    return 800
 
 
-def chunk_content_adaptively(content: str, max_chunk_size: int = None, 
+def chunk_content_adaptively(content: str, max_chunk_size: int = None,
                               overlap_chars: int = 100) -> List[str]:
     """
-    Split large content into optimally sized chunks using hardware-aware sizing.
-    
-    For content larger than the optimal chunk size, splits intelligently at:
+    Split large content into chunks based on embedding model token limits.
+
+    Default chunk size is 800 chars (fits in all-minilm:22m's 512 token limit).
+    Uses smart boundary detection to split at semantic breaks:
     1. Section boundaries (## headings)
     2. Paragraph boundaries (blank lines)
     3. Sentence boundaries (periods)
     4. Word boundaries (spaces)
-    
+
     Includes overlap between chunks to preserve semantic continuity.
-    
+
     Args:
         content: Content to chunk
-        max_chunk_size: Maximum chunk size. If None, uses get_optimal_chunk_size()
+        max_chunk_size: Maximum chunk size. If None, uses 800 chars (embedding limit)
         overlap_chars: Number of characters to overlap between chunks for continuity
-        
+
     Returns:
         List of chunked content strings
     """

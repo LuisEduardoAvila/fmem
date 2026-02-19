@@ -308,33 +308,21 @@ Current status and future plans...
 
 ---
 
-## 🧠 Adaptive Chunking (Hardware-Optimized)
+## Chunking Strategy
 
-**fmem v3.1.0+** introduces **Adaptive Chunking** – intelligent content sizing based on available system memory.
+**fmem v3.1.0+** uses fixed-size chunking based on the embedding model's token limits.
 
-### How It Works
+### The Constraint
 
-```
-Content → Hardware Detection → Optimal Chunk Sizes → Semantic Embedding
-                   ↑
-            Available RAM determines:
-            • <1GB: 1,000 char chunks (Pi Zero)
-            • <2GB: 2,000 char chunks (Pi 3)
-            • >2GB: 5,000 char chunks (Pi 4/5, desktops)
-```
+Uses `all-minilm:22m` which has:
+- **Context length:** 512 tokens
+- **Embedding length:** 384 dimensions
 
-### Hardware Detection
+In practice: **~800 characters** fits safely within 512 tokens.
 
-fmem automatically detects available memory and adjusts chunk sizes:
+Hardware RAM doesn't constrain chunking - the embedding model does.
 
-```python
-from fmem import get_optimal_chunk_size
-
-chunk_size = get_optimal_chunk_size()  # Returns optimal size based on hardware
-# Returns: 1000, 2000, or 5000 based on available RAM
-```
-
-### Adaptive Splitting
+### Smart Boundary Detection
 
 Large sections are intelligently split at optimal boundaries:
 
@@ -345,28 +333,28 @@ Large sections are intelligently split at optimal boundaries:
 
 Each split includes **overlap** (100 characters) to preserve semantic continuity between chunks.
 
-### Hardware Support
+### Fixed Chunk Size
 
-| System Type | RAM | Chunk Size | Use Case |
-|-------------|-----|------------|----------|
-| 🍓 Pi Zero | <1GB | 1,000 chars | Lowest memory footprint |
-| 🍓 Pi 3 | 1-2GB | 2,000 chars | Balanced performance |
-| 🍓 Pi 4/5 | 2GB+ | 5,000 chars | Full semantic richness |
-| 💻 Desktop | 4GB+ | 5,000 chars | Maximum context |
+| Setting | Value | Reason |
+|---------|-------|--------|
+| Chunk size | **800 chars** | Fits in 512 token limit |
+| Overlap | **100 chars** | Semantic continuity |
+| Preprocessing | **~500 chars** | Headings + summary for embedding |
 
-### No Content Truncation
+### Content Preservation
 
-Previous versions truncated content to 1,000 characters before embedding. With Adaptive Chunking:
+Full chunk content is stored in FAISS index. Before embedding, content is preprocessed to ~500 characters (headings + summary) to optimize search quality.
 
 ```python
-# OLD: Truncated content (lost context)
-embedding = model.encode(content[:1000])  # ❌ Lost semantic information
+# Full chunk stored for retrieval
+chunk.content  # Full text (up to 800 chars)
 
-# NEW: Full content preserved
-embedding = model.encode(chunk.content)    # ✅ Complete semantic context
+# Preprocessed for embedding
+processed = headings + summary  # ~500 chars
+embedding = model.encode(processed)  # Fits in 512 tokens
 ```
 
-**All indexed content now preserves full semantic information, significantly improving search quality across all hardware configurations.**
+**Search queries the full semantic representation while respecting model limits.**
 
 ---
 
