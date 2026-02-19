@@ -32,6 +32,7 @@ import re
 import time
 import hashlib
 import datetime
+from datetime import timedelta
 from pathlib import Path
 from typing import List, Dict, Optional, Tuple, Set
 from contextlib import contextmanager
@@ -50,7 +51,8 @@ class ChunkMetadata:
     
     def __init__(self, id: str, parent_file: str, heading: str, 
                  content: str, summary: str = None, keywords: List[str] = None,
-                 category: str = None, tokens: int = 0, chunk_index: int = 0):
+                 category: str = None, tokens: int = 0, chunk_index: int = 0,
+                 original_length: int = 0, processed_content: str = None):
         """
         Initialize chunk metadata.
         
@@ -58,12 +60,14 @@ class ChunkMetadata:
             id: Unique chunk identifier (e.g., "MEMORY.md#session-2026-02-13")
             parent_file: Path to original file
             heading: The ## heading text that defines this chunk
-            content: Section content
+            content: Section content (original)
             summary: Chunk summary (generated in Phase 2)
             keywords: Extracted keywords from content
             category: Inferred category from heading
             tokens: Approximate token count
             chunk_index: Position index within parent file
+            original_length: Length of original content before preprocessing
+            processed_content: The preprocessed content that was actually embedded
         """
         self.id = id
         self.parent_file = parent_file
@@ -74,6 +78,8 @@ class ChunkMetadata:
         self.category = category
         self.tokens = tokens
         self.chunk_index = chunk_index
+        self.original_length = original_length
+        self.processed_content = processed_content
     
     def to_dict(self) -> Dict:
         """Return dict representation."""
@@ -86,7 +92,9 @@ class ChunkMetadata:
             'keywords': self.keywords,
             'category': self.category,
             'tokens': self.tokens,
-            'chunk_index': self.chunk_index
+            'chunk_index': self.chunk_index,
+            'original_length': self.original_length,
+            'processed_content': self.processed_content
         }
     
     @classmethod
@@ -101,7 +109,9 @@ class ChunkMetadata:
             keywords=data.get('keywords', []),
             category=data.get('category'),
             tokens=data.get('tokens', 0),
-            chunk_index=data.get('chunk_index', 0)
+            chunk_index=data.get('chunk_index', 0),
+            original_length=data.get('original_length', 0),
+            processed_content=data.get('processed_content')
         )
 
 
@@ -330,7 +340,7 @@ def infer_category(heading: str) -> str:
 
 
 def chunk_markdown(content: str, filepath: str, min_chunk_size: int = 50,
-                   adaptive: bool = True) -> List[ChunkMetadata]:
+                   adaptive: bool = True, max_chunk_size: int = None) -> List[ChunkMetadata]:
     """
     Split markdown by ## headings with adaptive chunking support.
     
@@ -362,14 +372,23 @@ def chunk_markdown(content: str, filepath: str, min_chunk_size: int = 50,
     if not content or not filepath:
         return []
     
+    # Clean content: remove non-printable chars except standard whitespace
+    import re
+    content = re.sub(r'[^\x20-\x7E\t\n\r]', '', content)
+    
     filename = os.path.basename(filepath)
     chunks = []
     current_heading = "Top-Level Content"
     current_content = ""
     heading_pattern = re.compile(r'^(#{2,})\s+(.+)$', re.MULTILINE)
     
-    # Get optimal chunk size if adaptive mode is enabled
-    optimal_chunk_size = get_optimal_chunk_size() if adaptive else 5000
+    # Determine effective maximum chunk size
+    if max_chunk_size is not None:
+        effective_chunk_size = max_chunk_size
+    elif adaptive:
+        effective_chunk_size = get_optimal_chunk_size()
+    else:
+        effective_chunk_size = 5000
     
     # Split content by ## headings
     parts = []
@@ -398,9 +417,9 @@ def chunk_markdown(content: str, filepath: str, min_chunk_size: int = 50,
         content_clean = content.strip()
         if content_clean:
             # Apply adaptive chunking for content without headings
-            if adaptive and len(content_clean) > optimal_chunk_size:
+            if adaptive and len(content_clean) > effective_chunk_size:
                 chunked_content = chunk_content_adaptively(content_clean, 
-                                                          max_chunk_size=optimal_chunk_size)
+                                                          max_chunk_size=effective_chunk_size)
                 for i, chunk_section in enumerate(chunked_content):
                     # Create sub-heading based on position
                     sub_heading = f"Document (part {i+1}/{len(chunked_content)})" if len(chunked_content) > 1 else "Document"
@@ -446,10 +465,10 @@ def chunk_markdown(content: str, filepath: str, min_chunk_size: int = 50,
     chunk_index = 0
     for heading, section_content in merged_parts:
         # Check if section is too large for the current memory constraints
-        if adaptive and len(section_content) > optimal_chunk_size:
+        if adaptive and len(section_content) > effective_chunk_size:
             # Split this section into optimally sized chunks
             split_sections = chunk_content_adaptively(section_content, 
-                                                      max_chunk_size=optimal_chunk_size)
+                                                      max_chunk_size=effective_chunk_size)
             for i, split_content in enumerate(split_sections):
                 # Create sub-heading for split sections
                 sub_heading = f"{heading} (part {i+1}/{len(split_sections)})" if len(split_sections) > 1 else heading
@@ -512,7 +531,8 @@ def _create_chunk(filename: str, heading: str, content: str,
         keywords=keywords,
         category=category,
         tokens=tokens,
-        chunk_index=chunk_index
+        chunk_index=chunk_index,
+        original_length=len(content)
     )
 
 
@@ -520,11 +540,12 @@ import faiss
 import numpy as np
 import sqlite3
 
-# Try to import litellm and use nomic-embed-text model (served by local Ollama)
+# Try to import litellm and use all-minilm:22m model (served by local Ollama)
+# Switched from nomic-embed-text (137M) to all-minilm:22m (22M) for Pi5 compatibility
 try:
     import litellm
-    EMBEDDING_MODEL = "nomic-embed-text"
-    EMBEDDING_DIM = 768
+    EMBEDDING_MODEL = "all-minilm:22m"
+    EMBEDDING_DIM = 384
 except ImportError:
     raise ImportError(
         "litellm not installed. Run: pip install --break-system-packages litellm"
@@ -562,6 +583,9 @@ class ConfigManager:
     # Maximum batch size
     MAX_BATCH_SIZE = 100
     
+    # Maximum files to index per batch (0 = no limit)
+    DEFAULT_MAX_FILES_PER_BATCH = 0
+    
     # Memory quality enhancement settings
     DEFAULT_ENABLE_RECENCY_RANKING = True
     DEFAULT_RECENCY_WEIGHT = 0.3
@@ -575,6 +599,10 @@ class ConfigManager:
         """Initialize configuration manager."""
         self.config = configparser.ConfigParser()
         self._load_config()
+    
+    # Maximum chunk size for adaptive chunking (in characters)
+    # Overrides hardware-based auto-detection when set
+    DEFAULT_MAX_CHUNK_SIZE = None
     
     def _load_config(self):
         """Load configuration from environment and config file."""
@@ -614,6 +642,14 @@ class ConfigManager:
                 # Location-based ranking settings
                 self.enable_location_ranking = self.config.getboolean('settings', 'enable_location_ranking', fallback=self.DEFAULT_ENABLE_LOCATION_RANKING)
                 self.location_weight = self.config.getfloat('settings', 'location_weight', fallback=self.DEFAULT_LOCATION_WEIGHT)
+                
+                # Chunking settings
+                max_chunk_val = self.config.getint('settings', 'max_chunk_size', fallback=0)
+                self.max_chunk_size = max_chunk_val if max_chunk_val > 0 else None
+                
+                # Batch limits
+                self.max_files_per_batch = self.config.getint('settings', 'max_files_per_batch', fallback=self.DEFAULT_MAX_FILES_PER_BATCH)
+                
                 # Location-based importance weights for directories
                 self.location_weights = {
                     # High importance - formal documentation and decisions
@@ -907,13 +943,25 @@ class _LRUCache:
         except ImportError:
             # If psutil not available, check using /proc/meminfo
             try:
-                with open('/proc/meminfo', 'r') as f:
-                    for line in f:
+                # Use instance attribute to cache meminfo values (read once per cache instance)
+                if not hasattr(self, '_meminfo_cache'):
+                    # Read /proc/meminfo once and parse needed values
+                    with open('/proc/meminfo', 'r') as f:
+                        lines = f.readlines()
+                    available_kb = None
+                    total_kb = None
+                    for line in lines:
                         if line.startswith('MemAvailable:'):
                             available_kb = int(line.split()[1])
-                            total_kb = int(open('/proc/meminfo').read().split('\n')[0].split()[1])
-                            used_percent = 100 - (available_kb / total_kb) * 100
-                            return used_percent >= (threshold_percent * 100)
+                        elif line.startswith('MemTotal:'):
+                            total_kb = int(line.split()[1])
+                    # Cache the result on instance
+                    self._meminfo_cache = (available_kb, total_kb)
+                
+                available_kb, total_kb = self._meminfo_cache
+                if available_kb is not None and total_kb is not None:
+                    used_percent = 100 - (available_kb / total_kb) * 100
+                    return used_percent >= (threshold_percent * 100)
             except Exception:
                 pass
             
@@ -1179,7 +1227,7 @@ class OllamaClient:
         """Check if Ollama service is available."""
         try:
             response = litellm.embedding(
-                model="ollama/nomic-embed-text",
+                model=f"ollama/{EMBEDDING_MODEL}",
                 input=["health check"],
                 api_base=self.url,
                 timeout=self.timeout
@@ -1207,7 +1255,7 @@ class OllamaClient:
             try:
                 with self._get_connection():
                     response = litellm.embedding(
-                        model="ollama/nomic-embed-text",
+                        model=f"ollama/{EMBEDDING_MODEL}",
                         input=texts,
                         api_base=self.url,
                         timeout=self.timeout
@@ -1287,12 +1335,14 @@ class MemoryRetrieval:
         self.db_path = db_path or self.config.sqlite_path
         self.conn = None
         # Rate limiter for Ollama API (10 requests per 60 seconds)
-        self.rate_limiter = RateLimiter(max_requests=10, window_seconds=60)
+        self.rate_limiter = RateLimiter(max_requests=60, window_seconds=60)
         # Embedding cache with TTL (1 hour) and LRU eviction (max 10000 entries)
         self.embedding_cache = _LRUCache(maxsize=10000, ttl=3600)
         # Chunk-to-document mapping: maps FAISS index -> (filepath, chunk_id)
         # This is critical because FAISS contains chunk embeddings, not document embeddings
         self.chunk_index_map = []
+        # Doc metadata cache for O(1) lookup by filepath
+        self._doc_metadata_cache = {}
         
         logger.info("Initializing MemoryRetrieval...")
         
@@ -1304,6 +1354,9 @@ class MemoryRetrieval:
         
         # Initialize SQLite connection
         self._init_database()
+        
+        # Auto-repair: fix metadata/chunk_index_map inconsistencies left by interrupted indexing
+        self._auto_repair()
         
         logger.info(f"MemoryRetrieval initialized with {len(self.doc_metadata)} documents loaded")
     
@@ -1317,6 +1370,31 @@ class MemoryRetrieval:
         except Exception as e:
             logger.error(f"Failed to initialize database: {e}")
             self.conn = None
+    
+    def _auto_repair(self):
+        """Detect and fix inconsistencies between metadata and chunk_index_map."""
+        # Only consider files that claim to have chunks
+        meta_files = {d['filepath'] for d in self.doc_metadata if d.get('chunk_count', 0) > 0}
+        map_files = {c['filepath'] for c in self.chunk_index_map}
+        missing = meta_files - map_files
+        
+        if not missing:
+            return
+        
+        logger.warning(f"Found {len(missing)} file(s) with missing chunk mappings. Reindexing...")
+        repaired = 0
+        for fp in missing:
+            try:
+                # Reindex the file; this will create embeddings and update mappings
+                result = self.index_file(fp)
+                if result:
+                    repaired += 1
+            except Exception as e:
+                logger.error(f"Failed to reindex {fp}: {e}")
+        
+        if repaired:
+            self._save_index()
+            logger.info(f"Auto-repair: successfully reindexed {repaired} file(s)")
     
     def _create_db_tables(self):
         """Create document metadata table if not exists."""
@@ -1387,6 +1465,9 @@ class MemoryRetrieval:
             logger.warning(f"Failed to load cached index: {e}")
             # Initialize new index
             self.index = faiss.IndexFlatIP(self.dimension)
+        
+        # Build doc metadata cache for O(1) lookup
+        self._build_doc_metadata_cache()
     
     def _load_from_database(self):
         """Load document metadata from SQLite database."""
@@ -1415,6 +1496,10 @@ class MemoryRetrieval:
             logger.debug(f"Loaded {len(db_docs)} documents from database")
         except Exception as e:
             logger.error(f"Failed to load from database: {e}")
+    
+    def _build_doc_metadata_cache(self):
+        """Build O(1) lookup cache for doc_metadata by filepath."""
+        self._doc_metadata_cache = {d['filepath']: d for d in self.doc_metadata}
     
     def _is_append_only_file(self, filepath: str) -> bool:
         """
@@ -1636,9 +1721,160 @@ class MemoryRetrieval:
         
         return enhanced_results
     
-    def _get_embedding(self, text: str) -> Optional[np.ndarray]:
+    def _preprocess_for_embedding(self, content: str, heading: str = "") -> str:
+        """Preprocess content for embedding: extract headings + summary.
+        
+        This ensures content fits within Ollama's context window while
+        preserving semantic structure for searchability.
+        """
+        import re
+        
+        # Extract all ## and ### headings from content
+        headings = re.findall(r'^(#{2,3})\s+(.+)$', content, re.MULTILINE)
+        heading_lines = [f"{'#'*min(3,len(h[0]))} {h[1]}" for h in headings[:8]]
+        
+        # Create brief summary from first 200 chars of actual text (not markdown)
+        # Remove markdown syntax for summary
+        text_only = re.sub(r'[#*`\[\]|]', '', content[:300]).replace('\n', ' ').strip()
+        summary = text_only[:180] + "..." if len(text_only) > 180 else text_only
+        
+        # Combine: headings give structure, summary gives content
+        if heading_lines:
+            structured = '\n'.join(heading_lines) + '\n\n' + summary
+        else:
+            structured = heading + '\n\n' + summary if heading else summary
+        
+        # Ensure under 500 chars (safe for all-minilm:22m)
+        result = structured[:500]
+        
+        # If still too large or contains complex tables, use LLM fallback
+        if len(result) > 450 or '|' in content[:1000]:
+            return self._llm_preprocess_for_embedding(content, heading)
+        
+        return result
+    
+    def _llm_preprocess_for_embedding(self, content: str, heading: str = "") -> str:
+        """LLM-based preprocessing fallback for complex content (tables, large sections).
+        
+        Uses gemma3:270m to create structured summary with headings.
+        Slower but handles markdown tables and complex formatting.
+        """
+        import litellm
+        import re
+        
+        # Truncate if extremely large (LLM context limit)
+        max_input = 3000
+        if len(content) > max_input:
+            content = content[:max_input] + "..."
+        
+        # Create prompt for structured summarization
+        prompt = f"""Analyze this markdown and output:
+1. ## Overview - main topic (50 chars)
+2. ## Key Sections - list of ## headings found
+3. ## Summary - 200 char essence
+
+Content:
+{content}
+
+Output:"""
+        
+        try:
+            response = litellm.completion(
+                model="ollama/gemma3:270m-it-qat",
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=150,
+                temperature=0.3,
+                api_base=self.config.ollama_url
+            )
+            
+            if response and response.choices:
+                llm_output = response.choices[0].message.content
+                # Clean and truncate
+                cleaned = re.sub(r'[^\x20-\x7E\t\n\r]', '', llm_output)
+                return cleaned[:500]
+        except Exception as e:
+            logger.warning(f"LLM preprocessing failed: {e}, falling back to simple")
+        
+        # Fallback: return first 400 chars of original
+        return re.sub(r'[^\x20-\x7E\t\n\r]', '', content[:400])
+    
+    def _extract_sections_with_llm(self, content: str, filepath: str) -> List[Dict]:
+        """Extract structured sections from table-heavy markdown using LLM.
+        
+        Uses gemma3:270m to identify main sections and create summaries.
+        Returns list of {'heading': str, 'content': str} dicts.
+        """
+        import litellm
+        import re
+        
+        # Truncate for LLM context window
+        max_input = 4000
+        if len(content) > max_input:
+            content = content[:max_input] + "\n...[truncated]"
+        
+        prompt = f"""Extract main sections from this markdown document.
+For each ## or ### heading, create a 200-300 character summary.
+
+Format:
+## Section Name
+Summary text here...
+
+Document:
+{content}
+
+Sections:"""
+        
+        try:
+            response = litellm.completion(
+                model="ollama/gemma3:270m-it-qat",
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=500,
+                temperature=0.3,
+                api_base=self.config.ollama_url,
+                timeout=45
+            )
+            
+            if response and response.choices:
+                output = response.choices[0].message.content
+                sections = []
+                current_heading = "Overview"
+                current_content = []
+                
+                for line in output.split('\n'):
+                    if line.startswith('## '):
+                        if current_content:
+                            sections.append({
+                                'heading': current_heading,
+                                'content': '\n'.join(current_content).strip()[:400]
+                            })
+                        current_heading = line[3:].strip()
+                        current_content = []
+                    elif line.strip() and not line.startswith('#'):
+                        current_content.append(line)
+                
+                # Add last section
+                if current_content:
+                    sections.append({
+                        'heading': current_heading,
+                        'content': '\n'.join(current_content).strip()[:400]
+                    })
+                
+                if sections:
+                    logger.info(f"LLM extracted {len(sections)} sections")
+                    return sections
+                    
+        except Exception as e:
+            logger.warning(f"LLM section extraction failed: {e}")
+        
+        # Fallback: single section
+        return [{'heading': 'Document Overview', 'content': content[:400]}]
+    
+    def _get_embedding(self, text: str, heading: str = "") -> Optional[np.ndarray]:
         """Get embedding from cache or generate new one with rate limiting."""
-        text_hash = hashlib.md5(text.encode()).hexdigest()
+        # Preprocess text before embedding (headings + summary)
+        processed_text = self._preprocess_for_embedding(text, heading=heading)
+        
+        text_hash = hashlib.md5(processed_text.encode()).hexdigest()
         
         if text_hash in self.embedding_cache:
             return self.embedding_cache[text_hash]
@@ -1648,7 +1884,7 @@ class MemoryRetrieval:
             logger.warning("Rate limit exceeded for embedding generation")
             return None
         
-        embedding = self.ollama.generate_embeddings([text])
+        embedding = self.ollama.generate_embeddings([processed_text])
         if embedding is not None:
             # Record the successful request
             self.rate_limiter.record_request()
@@ -1759,7 +1995,9 @@ class MemoryRetrieval:
         
         # Split into batches if needed
         all_embeddings = []
-        batch_size = min(len(texts), self.config.MAX_BATCH_SIZE)
+        batch_size = self.config.MAX_BATCH_SIZE
+        if len(texts) == 0:
+            return None
         
         for i in range(0, len(texts), batch_size):
             batch = texts[i:i + batch_size]
@@ -1822,12 +2060,12 @@ class MemoryRetrieval:
                     return False
                 
                 try:
-                    with open(filepath, 'r', encoding='utf-8') as f:
+                    with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
                         content = f.read()
                 except UnicodeDecodeError:
                     # Try with different encoding
                     try:
-                        with open(filepath, 'r', encoding='latin-1') as f:
+                        with open(filepath, 'r', encoding='latin-1', errors='ignore') as f:
                             content = f.read()
                     except Exception as e:
                         logger.error(f"Failed to read {filepath}: {e}")
@@ -1835,6 +2073,10 @@ class MemoryRetrieval:
                 except Exception as e:
                     logger.error(f"Failed to read {filepath}: {e}")
                     return False
+                
+                # Clean content: remove non-printable chars except standard whitespace
+                import re
+                content = re.sub(r'[^\x20-\x7E\t\n\r]', '', content)
             
             # Validate content length
             if not content or len(content.strip()) == 0:
@@ -1856,16 +2098,60 @@ class MemoryRetrieval:
             
             # Determine whether to chunk or index as whole document
             if chunk_by_sections and filepath.endswith('.md'):
-                # Chunk markdown by sections
-                chunks = chunk_markdown(content, filepath)
+                # Check for table-heavy files - use LLM section extraction
+                table_rows = content.count('|') // 3
+                if table_rows > 10:
+                    logger.info(f"Table-heavy file detected ({table_rows} rows), using LLM extraction...")
+                    llm_sections = self._extract_sections_with_llm(content, filepath)
+                    
+                    chunk_embeddings = []
+                    for i, section in enumerate(llm_sections):
+                        processed = section['content'][:500]
+                        emb = self._get_embedding(processed, heading=section['heading'])
+                        if emb is not None:
+                            chunk_embeddings.append(emb)
+                            if self.index is None:
+                                self.index = faiss.IndexFlatIP(self.dimension)
+                            self.index.add(np.array([emb]))
+                            
+                            chunk_id = f"{os.path.basename(filepath)}#{slugify(section['heading'])}-{i}"
+                            self.chunk_index_map.append({
+                                'filepath': filepath,
+                                'chunk_id': chunk_id,
+                                'heading': section['heading'],
+                                'processed_content': processed,
+                                'original_length': len(content),
+                                'method': 'llm_sections'
+                            })
+                    
+                    # Store metadata
+                    metadata = {
+                        'filepath': filepath,
+                        'content': content[:500] + "...",
+                        'last_modified': int(datetime.datetime.now().timestamp()),
+                        'is_chunked': True,
+                        'chunk_count': len(chunk_embeddings),
+                        'method': 'llm_sections'
+                    }
+                    self.doc_metadata.append(metadata)
+                    self._store_embedding(metadata, content[:500])
+                    self.persist()
+                    logger.info(f"✓ Indexed {len(chunk_embeddings)} LLM-extracted sections")
+                    return True
+                
+                # Normal chunking for non-table-heavy files
+                chunks = chunk_markdown(content, filepath, max_chunk_size=self.config.max_chunk_size)
                 logger.info(f"✓ Split {filepath} into {len(chunks)} chunks")
                 
                 # Index each chunk separately
                 chunk_embeddings = []
                 for i, chunk in enumerate(chunks):
-                    # Generate embedding for chunk (full chunk content, no truncation)
-                    # Adaptive chunking ensures optimal size for hardware constraints
-                    chunk_embedding = self._get_embedding(chunk.content)
+                    # Preprocess content for embedding (headings + summary)
+                    processed_content = self._preprocess_for_embedding(chunk.content, heading=chunk.heading)
+                    chunk.processed_content = processed_content
+                    
+                    # Generate embedding from processed content
+                    chunk_embedding = self._get_embedding(chunk.content, heading=chunk.heading)
                     if chunk_embedding is not None:
                         chunk_embeddings.append(chunk_embedding)
 
@@ -1877,11 +2163,14 @@ class MemoryRetrieval:
                         # Store chunk metadata
                         self._store_chunk_metadata(chunk)
 
-                        # Add to chunk_index_map: FAISS index -> (filepath, chunk_id)
+                        # Add to chunk_index_map: FAISS index -> (filepath, chunk_id, heading, processed)
                         # This maintains the mapping so search() can find the correct document
                         self.chunk_index_map.append({
                             'filepath': filepath,
-                            'chunk_id': chunk.id
+                            'chunk_id': chunk.id,
+                            'heading': chunk.heading,
+                            'processed_content': processed_content,
+                            'original_length': chunk.original_length
                         })
                 
                 # Also store the full document for backward compatibility
@@ -1891,7 +2180,7 @@ class MemoryRetrieval:
                     'last_modified': int(datetime.datetime.now().timestamp()),
                     'created_at': int(datetime.datetime.now().timestamp()),
                     'is_chunked': True,
-                    'chunk_count': len(chunks)
+                    'chunk_count': len(chunk_embeddings)  # Only count successfully embedded chunks
                 }
                 
                 # Add document metadata (pointing to chunks)
@@ -1905,6 +2194,9 @@ class MemoryRetrieval:
                     self.doc_metadata[existing_idx] = metadata
                 else:
                     self.doc_metadata.append(metadata)
+                
+                # Update cache for O(1) lookup in search
+                self._doc_metadata_cache[filepath] = metadata
                 
                 # Store in database
                 self._store_embedding(metadata, content)
@@ -1931,9 +2223,13 @@ class MemoryRetrieval:
                 
                 if existing_idx is not None:
                     self.doc_metadata[existing_idx] = metadata
+                    # Update cache
+                    self._doc_metadata_cache[filepath] = metadata
                     logger.info(f"✓ Updated document: {filepath}")
                 else:
                     self.doc_metadata.append(metadata)
+                    # Update cache for O(1) lookup in search
+                    self._doc_metadata_cache[filepath] = metadata
 
                     # Add to FAISS index
                     if main_embedding is not None:
@@ -2055,12 +2351,8 @@ class MemoryRetrieval:
                 logger.warning(f"FAISS index {faiss_idx} out of range for chunk_index_map (size: {len(self.chunk_index_map)})")
                 continue
 
-            # Find document metadata by filepath
-            doc = None
-            for d in self.doc_metadata:
-                if d['filepath'] == filepath:
-                    doc = d
-                    break
+            # Find document metadata by filepath using cached dict for O(1) lookup
+            doc = self._doc_metadata_cache.get(filepath)
 
             if doc is None:
                 logger.warning(f"Document not found for filepath: {filepath}")
@@ -2359,7 +2651,7 @@ class MemoryRetrieval:
         """Get list of all indexed document paths."""
         return [doc['filepath'] for doc in self.doc_metadata]
     
-    def index_directory(self, directory: str, recursive: bool = True, base_dir: Optional[str] = None) -> int:
+    def index_directory(self, directory: str, recursive: bool = True, base_dir: Optional[str] = None, max_files: int = 0, skip_existing: bool = False) -> int:
         """
         Index all valid files in a directory.
         
@@ -2367,6 +2659,7 @@ class MemoryRetrieval:
             directory: Path to directory to index
             recursive: Whether to index subdirectories recursively
             base_dir: Optional base directory for path validation (defaults to directory's parent)
+            max_files: Maximum number of files to index (0 = no limit)
             
         Returns:
             Number of files successfully indexed
@@ -2453,6 +2746,25 @@ class MemoryRetrieval:
                     logger.warning(f"Skipping file outside base directory: {f}")
                     continue
         
+        # Optionally skip already indexed files
+        if skip_existing:
+            # Build set of already indexed filepaths for quick lookup
+            existing_files = set(doc['filepath'] for doc in self.doc_metadata)
+            # Filter to only new files
+            new_files = [f for f in valid_files if f not in existing_files]
+            skipped = len(valid_files) - len(new_files)
+            if skipped > 0:
+                logger.info(f"Skipped {skipped} already indexed file(s)")
+            valid_files = new_files
+        
+        # Apply max_files limit if set
+        if max_files > 0:
+            if len(valid_files) > max_files:
+                logger.info(f"Limiting this run to {max_files} files (out of {len(valid_files)} found)")
+                valid_files = valid_files[:max_files]
+            else:
+                logger.info(f"Will index {len(valid_files)} files (limit: {max_files})")
+        
         # Index files
         success_count = 0
         failed_files = []
@@ -2461,29 +2773,6 @@ class MemoryRetrieval:
             try:
                 abs_path = str(Path(filepath).resolve())
                 self.add_document(abs_path)
-                success_count += 1
-            except Exception as e:
-                logger.warning(f"Failed to index {filepath}: {e}")
-                failed_files.append(filepath)
-        
-        # Persist changes
-        self.persist()
-        
-        if failed_files:
-            logger.info(f"Indexed {success_count} files, failed {len(failed_files)}")
-        else:
-            logger.info(f"Indexed {success_count} files")
-        
-        return success_count
-        for filepath in valid_files:
-            try:
-                abs_path = str(Path(filepath).resolve())
-                safe_path = sanitize_path(abs_path, base_dir=base_dir, config=self.config)
-                if safe_path is None:
-                    logger.warning(f"Invalid path: {abs_path}")
-                    failed_files.append(abs_path)
-                    continue
-                self.add_document(safe_path)
                 success_count += 1
             except Exception as e:
                 logger.warning(f"Failed to index {filepath}: {e}")
