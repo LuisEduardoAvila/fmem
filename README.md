@@ -603,13 +603,22 @@ Too high → Ollama timeouts. Too low → slow indexing. Start with 600 and incr
 
 ## Changelog
 
-### v3.2.0 (2026-02-22) - Hybrid Chunking
+### v3.2.0 (2026-02-22) - Hybrid Chunking & Context Injection
 - ✅ **New:** Table-aware chunking (tables as atomic units)
 - ✅ **Performance:** 20x faster indexing (1-2s vs 30s+)
 - ✅ **Removed:** All LLM-based workarounds (6-8 API calls eliminated)
 - ✅ **New:** `md2chunks_splitter.py` module for hybrid splitting
 - ✅ **Improved:** Header context preservation for all chunks
-- 📚 **Docs:** Updated [CHUNKING_STRATEGY.md](./docs/CHUNKING_STRATEGY.md)
+- ✅ **Fixed:** Duplicate chunk detection (re-indexing no longer creates duplicates)
+- ✅ **Fixed:** Recency weight calculation (30% not 9% - was double-applied)
+- ✅ **Fixed:** mtime preservation (created_at preserved, last_modified uses file time)
+- ✅ **New:** Configurable rate limiting (600 req/min default, tunable per hardware)
+- ✅ **New:** Pre-computed file summaries in metadata (for context injection)
+- ✅ **New:** Dynamic stats extraction from search results
+- ✅ **New:** Special handling for memory files (extract topics + status)
+- ✅ **New:** Full source path in context (for file reading by LLM)
+- ✅ **New:** Multi-factor context: Pre-computed summary + Dynamic stats
+- 📚 **Docs:** Updated [CHUNKING_STRATEGY.md](./docs/CHUNKING_STRATEGY.md), [INTEGRATION_FLOW.md](./docs/INTEGRATION_FLOW.md)
 
 ### v3.1.0 (2026-02-19) - Adaptive Chunking
 - ✅ Fixed chunk size to 800 chars (all-minilm:22m constraint)

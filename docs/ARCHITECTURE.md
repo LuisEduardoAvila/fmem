@@ -27,7 +27,8 @@
 │                           Embedding Layer                                │
 │  ┌────────────────────────────────────────────────────────────────────┐ │
 │  │                         Ollama (Local)                              │ │
-│  │              Model: nomic-embed-text (768 dimensions)              │ │
+│  │             Model: all-minilm:22m (384 dimensions)                │ │
+│  │             (768 dimensions: nomic-embed-text - legacy)            │ │
 │  └────────────────────────────────────────────────────────────────────┘ │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
@@ -63,7 +64,20 @@
 - `content`: Section text
 - `keywords`: Extracted terms
 - `category`: Inferred type
+- `processed_content`: Preprocessed content for embedding (headings + summary, ~500 chars)
 - `tokens`: Estimated count
+
+### Chunk Size Constraint
+
+**Model:** `all-minilm:22m`
+- **Context length:** 512 tokens
+- **Embedding dimension:** 384
+- **Max content for embedding:** ~800 characters (~500 tokens safe)
+
+**Processing:**
+- Full chunk stored in FAISS (up to 800 chars)
+- Preprocessed to ~500 chars before embedding (headings + summary)
+- Fits within 512 token limit
 
 ### 3. Multi-Factor Ranking
 
@@ -90,7 +104,7 @@ Final Score = (Semantic × 0.5) + (Recency × 0.3) + (Location × 0.2)
 
 **FAISS Index:**
 - Type: IndexIDMap + IndexFlatIP (inner product)
-- Dimension: 768 (nomic-embed-text)
+- Dimension: **384** (all-minilm:22m) (was 768 for nomic-embed-text legacy)
 - Persistence: Binary file `faiss_index.fai`
 
 **SQLite Database:**
@@ -264,7 +278,7 @@ flowchart LR
 | Indexing | O(n) | n = chunks, linear embedding generation |
 | Search | O(log n) | FAISS approximate search |
 | Cache hit | O(1) | Hash lookup |
-| Cache miss | O(n) | n = embedding dimension (768) |
+| Cache miss | O(n) | n = embedding dimension (384) |
 
 ### Space Complexity
 
@@ -465,7 +479,8 @@ graph TB
 - FAISS Documentation: https://faiss.ai/
 - Ollama API: https://github.com/ollama/ollama/blob/main/docs/api.md
 - MCP Specification: https://spec.modelcontextprotocol.io/
-- nomic-embed-text: https://huggingface.co/nomic-ai/nomic-embed-text-v1
+- all-minilm:22m: https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2 (current, 384 dims)
+- nomic-embed-text: https://huggingface.co/nomic-ai/nomic-embed-text-v1 (legacy, 768 dims)
 
 ---
 
