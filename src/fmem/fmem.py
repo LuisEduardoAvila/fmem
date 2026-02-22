@@ -1990,6 +1990,17 @@ class MemoryRetrieval:
                 chunks = chunk_markdown(content, filepath, max_chunk_size=self.config.max_chunk_size)
                 logger.info(f"✓ Split {filepath} into {len(chunks)} chunks")
                 
+                # Remove existing chunks for this file before adding new ones
+                # (Prevents duplicates when re-indexing)
+                existing_chunks = [i for i, m in enumerate(self.chunk_index_map) 
+                                  if m['filepath'] == filepath]
+                if existing_chunks:
+                    logger.info(f"Removing {len(existing_chunks)} existing chunks for {filepath}")
+                    # Remove in reverse order to maintain index validity
+                    for idx in sorted(existing_chunks, reverse=True):
+                        del self.chunk_index_map[idx]
+                    # Note: FAISS index will be rebuilt on persist
+                
                 # Index each chunk separately
                 chunk_embeddings = []
                 for i, chunk in enumerate(chunks):
