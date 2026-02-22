@@ -196,151 +196,176 @@ def auto_recall(message: str, top_k: int = 3, chunk_mode: str = "chunk") -> list
 
 def format_results(results: list, max_preview: int = 200, chunk_mode: str = "chunk") -> str:
     """
-    Format search results for context injection with clear memory tags.
-    Uses adaptive preview length based on result count.
+    Format search results for meaningful context injection into OpenClaw.
+    
+    Creates natural, conversational context that helps the LLM understand:
+    - What was found (relevance-ranked)
+    - Where it came from (source context)
+    - How it relates to the query
     
     Args:
-        results: List of search results
-        max_preview: Maximum preview length (adjusted adaptively)
-        chunk_mode: How to format results:
-                   - "chunk": Format individual chunks
-                   - "document": Format full documents
-                   - "hybrid": Combine chunks with parent documents
+        results: List of search results from fmem.search()
+        max_preview: Maximum preview length per result
+        chunk_mode: Format style ("chunk", "document", or "hybrid")
         
     Returns:
-        Formatted string for context
+        Formatted string ready for LLM context injection
     """
     try:
         if not results:
             return ""
         
-        # Adaptive preview: more space for single result, less for many
-        result_count = len(results)
+        # Sort by score (highest first)
+        sorted_results = sorted(results, key=lambda x: x.get('score', 0), reverse=True)
+        
+        # Adaptive preview based on number of results
+        result_count = len(sorted_results)
         if result_count == 1:
-            adaptive_preview = 400  # Deep dive into single result
-        elif result_count == 2:
-            adaptive_preview = 250  # Balanced
+            preview_len = 400  # Give single result more space
+        elif result_count <= 3:
+            preview_len = 250  # Balance for few results
         else:
-            adaptive_preview = 150  # Quick overview
+            preview_len = 150  # Shorter for many results
         
-        # Use smaller of provided max or adaptive
-        actual_preview = min(max_preview, adaptive_preview)
+        actual_preview = min(max_preview, preview_len)
         
-        # Group results by parent file
-        parent_docs = {}  # filepath -> {document, chunks: []}
-        chunk_results = []
+        # Build output
+        output = []
+        output.append("<retrieved_memory>")
+        output.append("")
         
-        for r in results:
-            filepath = r['filepath']
-            chunk_info = r.get('chunk_info')
-            
-            if chunk_info:
-                # This is a chunk result
-                if filepath not in parent_docs:
-                    parent_docs[filepath] = {'document': None, 'chunks': []}
-                parent_docs[filepath]['chunks'].append(r)
-            else:
-                # This is a document result
-                if filepath not in parent_docs:
-                    parent_docs[filepath] = {'document': r, 'chunks': []}
-                else:
-                    parent_docs[filepath]['document'] = r
+        # Summary header
+        if result_count == 1:
+            output.append("I found 1 relevant memory for this conversation:")
+        else:
+            output.append(f"I found {result_count} relevant memories for this conversation:")
+        output.append("")
         
-        output = ["\n<retrieved_memory>"]
-        output.append("📝 The following is retrieved from your long-term memory (previous interactions, notes, and preferences).")
-        output.append("This context helps inform the current conversation but may not reflect recent updates.\n")
+        # Group by source file for organization
+        from collections import defaultdict
+        by_source = defaultdict(list)
         
-        item_index = 1
+        for r in sorted_results[:4]:  # Top 4 results
+            filepath = r.get('filepath', 'unknown')
+            by_source[filepath].append(r)
         
-        for filepath, data in parent_docs.items():
+        # Format each result with relevance ranking
+        for idx, (filepath, file_results) in enumerate(by_source.items(), 1):
             filename = os.path.basename(filepath)
-            dirname = os.path.basename(os.path.dirname(filepath)) if '/' in filepath else ''
+            dirname = os.path.basename(os.path.dirname(filepath))
             
-            # Format scores if available
-            scores = ""
-            if 'semantic_score' in data['document'] if data['document'] else r:
-                score_source = data['document'] if data['document'] else r
-                scores = f" | relevance={score_source['semantic_score']:.2f}"
-                if 'recency_score' in score_source:
-                    scores += f", recency={score_source['recency_score']:.2f}"
-            
-            location_label = f"[{dirname}/]" if dirname else ""
-            
-            if chunk_mode == "chunk":
-                # Format individual chunks
-                chunks = data.get('chunks', [])
-                for chunk in chunks:
-                    content = chunk.get('content', '')
-                    preview = content[:actual_preview] + "..." if len(content) > actual_preview else content
-                    
-                    # Get chunk metadata
-                    chunk_info = chunk.get('chunk_info', {})
-                    heading = chunk_info.get('heading', 'Section')
-                    keywords = chunk_info.get('keywords', [])
-                    category = chunk_info.get('category', 'general')
-                    
-                    # Build keywords string
-                    keywords_str = ', '.join(keywords) if keywords else ''
-                    
-                    output.append(f"<memory_chunk index=\"{item_index}\" source=\"{location_label}{filename}#{slugify(heading)}\" category=\"{category}\">")
-                    output.append(f"<heading>{heading}</heading>")
-                    output.append(f"<content>{preview.strip()}</content>")
-                    if keywords_str:
-                        output.append(f"<keywords>{keywords_str}</keywords>")
-                    output.append(f"</memory_chunk>")
-                    item_index += 1
-                    
-                    # Limit to top 3 chunks total for context
-                    if item_index > 4:
-                        break
-            elif chunk_mode == "document" or chunk_mode == "hybrid":
-                # Format full document
-                doc = data.get('document')
-                if doc:
-                    content = doc.get('content', '')
-                    preview = content[:actual_preview] + "..." if len(content) > actual_preview else content
-                    
-                    output.append(f"<memory_item index=\"{item_index}\" source=\"{location_label}{filename}\"{scores}>")
-                    output.append(preview.strip())
-                    output.append(f"</memory_item>")
-                    item_index += 1
+            # Determine relevance label
+            if idx == 1:
+                relevance = "Most relevant"
+            elif idx == 2:
+                relevance = "Also relevant"
             else:
-                # Default: format as chunks
-                chunks = data.get('chunks', [])
-                for chunk in chunks:
-                    content = chunk.get('content', '')
-                    preview = content[:actual_preview] + "..." if len(content) > actual_preview else content
-                    
-                    chunk_info = chunk.get('chunk_info', {})
-                    heading = chunk_info.get('heading', 'Section')
-                    keywords = chunk_info.get('keywords', [])
-                    category = chunk_info.get('category', 'general')
-                    
-                    keywords_str = ', '.join(keywords) if keywords else ''
-                    
-                    output.append(f"<memory_chunk index=\"{item_index}\" source=\"{location_label}{filename}#{slugify(heading)}\" category=\"{category}\">")
-                    output.append(f"<heading>{heading}</heading>")
-                    output.append(f"<content>{preview.strip()}</content>")
-                    if keywords_str:
-                        output.append(f"<keywords>{keywords_str}</keywords>")
-                    output.append(f"</memory_chunk>")
-                    item_index += 1
-                    
-                    if item_index > 4:
-                        break
+                relevance = "Related"
             
-            # Limit total items
-            if item_index > 4:
-                break
+            # Document type context
+            doc_type = _get_doc_type(filename, dirname)
+            source_context = f"{doc_type} from {dirname}/{filename}"
+            
+            output.append(f"[{idx}] {relevance}: {source_context}")
+            output.append("")
+            
+            # Include each chunk from this file
+            for r in file_results:
+                content = r.get('content', '')
+                preview = content[:actual_preview].strip()
+                if len(content) > actual_preview:
+                    preview += "..."
+                
+                # Get heading if available
+                chunk_info = r.get('chunk_info', {})
+                heading = chunk_info.get('heading', '')
+                
+                if heading and heading != 'Text':
+                    output.append(f"   Under '{heading}':")
+                
+                # Clean content for readability
+                clean_content = _clean_for_llm(preview)
+                output.append(f"   {clean_content}")
+                output.append("")
+                
+                # Show score if meaningful
+                score = r.get('score', 0)
+                if score > 0.5:
+                    output.append(f"   [relevance: {score:.0%}]")
+                    output.append("")
+        
+        # Footer
+        if result_count > 4:
+            output.append(f"...and {result_count - 4} more related memories")
+            output.append("")
         
         output.append("</retrieved_memory>")
         
         return "\n".join(output)
         
     except Exception as e:
-        # Graceful degradation: log error and return empty string instead of crashing
-        logger.warning(f"Format results failed (degraded): {e}")
+        logger.warning(f"Format results failed: {e}")
         return ""
+
+
+def _get_doc_type(filename: str, dirname: str) -> str:
+    """Determine document type for context."""
+    lowername = filename.lower()
+    lowerdir = dirname.lower()
+    
+    if 'memory' in lowerdir or 'memory' in lowername:
+        return "Memory"
+    elif 'docs' in lowerdir or 'documentation' in lowerdir:
+        return "Documentation"
+    elif 'decisions' in lowerdir or 'decisions' in lowername:
+        return "Decision"
+    elif 'projects' in lowerdir:
+        return "Project notes"
+    elif 'notes' in lowerdir:
+        return "Notes"
+    elif 'chats' in lowerdir or 'conversations' in lowerdir:
+        return "Chat history"
+    elif 'binge' in lowerdir or 'watch' in lowername:
+        return "Movie/series tracking"
+    elif lowername.endswith('.md'):
+        return "Document"
+    else:
+        return "File"
+
+
+def _clean_for_llm(text: str) -> str:
+    """
+    Clean up text for better LLM readability.
+    Removes markdown formatting artifacts while preserving meaning.
+    """
+    import re
+    
+    # Remove leading/trailing whitespace
+    text = text.strip()
+    
+    # Skip heading-only content (likely a table of contents marker)
+    if text.startswith('###') and len(text) < 50:
+        return "(Section heading)"
+    
+    # Remove markdown heading markers
+    text = re.sub(r'^#{1,6}\s*', '', text, flags=re.MULTILINE)
+    
+    # Remove markdown table separators
+    text = re.sub(r'\|[-:\| ]+\|', '', text)
+    
+    # Remove excessive newlines but preserve paragraph breaks
+    lines = [line.strip() for line in text.split('\n')]
+    lines = [line for line in lines if line]
+    text = ' '.join(lines)
+    
+    # Clean up multiple spaces
+    text = ' '.join(text.split())
+    
+    # Remove leftover table cell separators
+    text = text.replace(' | ', ' ')
+    text = text.replace('|', ' ')
+    
+    return text
 
 
 def slugify(text: str) -> str:
