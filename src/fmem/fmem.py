@@ -1934,6 +1934,22 @@ class MemoryRetrieval:
                 logger.error(f"Invalid file extension: {filepath}")
                 return False
             
+            # Get file modification time (for recency tracking and change detection)
+            file_mtime = None
+            if os.path.exists(filepath):
+                file_mtime = os.path.getmtime(filepath)
+                
+                # Check if file was already indexed with same mtime
+                for doc in self.doc_metadata:
+                    if doc['filepath'] == filepath:
+                        stored_mtime = doc.get('last_modified', 0)
+                        if stored_mtime == int(file_mtime):
+                            logger.info(f"Skipped (unchanged): {filepath}")
+                            return True
+                        else:
+                            logger.info(f"File modified, re-indexing: {filepath}")
+                        break
+            
             # Load content if not provided
             if content is None:
                 # Check if file exists
@@ -1946,6 +1962,8 @@ class MemoryRetrieval:
                 if not valid:
                     logger.error(msg)
                     return False
+                
+                # file_mtime already captured above
                 
                 try:
                     with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
@@ -2032,11 +2050,18 @@ class MemoryRetrieval:
                         })
                 
                 # Also store the full document for backward compatibility
+                # Preserve original created_at if exists, use file_mtime for last_modified
+                created_at = int(datetime.datetime.now().timestamp())
+                for doc in self.doc_metadata:
+                    if doc['filepath'] == filepath:
+                        created_at = doc.get('created_at', created_at)
+                        break
+                
                 metadata = {
                     'filepath': filepath,
                     'content': content,
-                    'last_modified': int(datetime.datetime.now().timestamp()),
-                    'created_at': int(datetime.datetime.now().timestamp()),
+                    'last_modified': int(file_mtime) if file_mtime else int(datetime.datetime.now().timestamp()),
+                    'created_at': created_at,
                     'is_chunked': True,
                     'chunk_count': len(chunk_embeddings)  # Only count successfully embedded chunks
                 }
@@ -2064,11 +2089,18 @@ class MemoryRetrieval:
                 
             else:
                 # Traditional document indexing (no chunking)
+                # Preserve original created_at if exists
+                created_at = int(datetime.datetime.now().timestamp())
+                for doc in self.doc_metadata:
+                    if doc['filepath'] == filepath:
+                        created_at = doc.get('created_at', created_at)
+                        break
+                
                 metadata = {
                     'filepath': filepath,
                     'content': content,
-                    'last_modified': int(datetime.datetime.now().timestamp()),
-                    'created_at': int(datetime.datetime.now().timestamp()),
+                    'last_modified': int(file_mtime) if file_mtime else int(datetime.datetime.now().timestamp()),
+                    'created_at': created_at,
                     'is_chunked': False
                 }
                 
