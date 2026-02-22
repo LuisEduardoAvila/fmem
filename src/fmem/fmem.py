@@ -1565,16 +1565,18 @@ class MemoryRetrieval:
         # Get base recency weight
         recency_weight = self.config.recency_weight
         
-        # Reduce weight for append-only files (daily logs)
+        # Reduce recency score for append-only files (daily logs)
+        # These files are constantly updated, so recency is less meaningful
         if filepath and self._is_append_only_file(filepath):
-            recency_weight *= self.config.append_only_recency_factor  # e.g., 30% → 10%
+            # Score will be multiplied by factor in enhancement
+            pass  # Factor handled in enhancement function
         
         # If within threshold, calculate score based on age
         if age_days <= self.config.recency_threshold_days:
             # Exponential decay: newer documents get higher scores
             recency_score = 1.0 - (age_days / self.config.recency_threshold_days)
-            # Apply reduced weight for append-only files
-            return max(recency_score * recency_weight, self.config.min_recency_score)
+            # Return raw score (weight applied in enhancement, not here)
+            return max(recency_score, self.config.min_recency_score)
         else:
             # Beyond threshold, apply minimum recency score
             return self.config.min_recency_score
@@ -1611,16 +1613,22 @@ class MemoryRetrieval:
                     filepath
                 )
                 
-                # Apply hybrid scoring: semantic_score * (1 - recency_weight) + recency_score * recency_weight
+                # Get recency weight (may be reduced for append-only files)
+                recency_weight = self.config.recency_weight
+                if self._is_append_only_file(filepath):
+                    recency_weight *= self.config.append_only_recency_factor
+                
+                # Apply hybrid scoring: semantic_score * (1 - weight) + recency_score * weight
                 semantic_score = result['score']
-                enhanced_score = (semantic_score * (1 - self.config.recency_weight) + 
-                                recency_score * self.config.recency_weight)
+                enhanced_score = (semantic_score * (1 - recency_weight) + 
+                                recency_score * recency_weight)
                 
                 # Create enhanced result
                 enhanced_result = result.copy()
                 enhanced_result['score'] = enhanced_score
                 enhanced_result['semantic_score'] = semantic_score
                 enhanced_result['recency_score'] = recency_score
+                enhanced_result['recency_weight_applied'] = recency_weight
                 enhanced_result['enhanced'] = True
                 
                 enhanced_results.append(enhanced_result)
