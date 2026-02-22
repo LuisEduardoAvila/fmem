@@ -1343,7 +1343,7 @@ class MemoryRetrieval:
         self.db_path = db_path or self.config.sqlite_path
         self.conn = None
         # Rate limiter for Ollama API (10 requests per 60 seconds)
-        self.rate_limiter = RateLimiter(max_requests=60, window_seconds=60)
+        self.rate_limiter = RateLimiter(max_requests=600, window_seconds=60)  # 10 req/sec sustainable
         # Embedding cache with TTL (1 hour) and LRU eviction (max 10000 entries)
         self.embedding_cache = _LRUCache(maxsize=10000, ttl=3600)
         # Chunk-to-document mapping: maps FAISS index -> (filepath, chunk_id)
