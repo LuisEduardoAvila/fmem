@@ -1559,12 +1559,131 @@ class MemoryRetrieval:
         This summary is stored in doc_metadata and used for context injection
         to give the LLM an overview of what the file contains.
         
+        Special handling for:
+        - Memory files (memory/YYYY-MM-DD.md, MEMORY.md): Extract topics + status
+        - Regular files: First heading + first paragraph
+        
         Args:
             content: Full file content
             filepath: Path to the file
             
         Returns:
-            Brief summary string (50-120 chars)
+            Brief summary string (50-150 chars)
+        """
+        import re
+        
+        # Detect memory files
+        is_memory_file = False
+        normalized_path = os.path.normpath(filepath).lower()
+        
+        if 'memory.md' in normalized_path or normalized_path.endswith('memory.md'):
+            is_memory_file = True
+        elif 'memory/' in normalized_path or '/memory/' in normalized_path:
+            # Check if filename matches date pattern YYYY-MM-DD.md
+            filename = os.path.basename(filepath)
+            if re.search(r'\d{4}-\d{2}-\d{2}', filename):
+                is_memory_file = True
+        
+        if is_memory_file:
+            # Memory file: extract all ## headings and status keywords
+            return self._extract_memory_summary(content, filepath)
+        else:
+            # Regular file: first heading + first paragraph
+            return self._extract_regular_summary(content, filepath)
+    
+    def _extract_memory_summary(self, content: str, filepath: str) -> str:
+        """
+        Extract summary from memory/log-style files.
+        
+        Extracts:
+        - Date from filename or first heading
+        - All ## topics/sections
+        - Status keywords (COMPLETED, FIXED, DONE, ✅)
+        - Count of topics and completed items
+        
+        Args:
+            content: File content
+            filepath: File path
+            
+        Returns:
+            Summary like: "2026-02-22: 7 topics, 3 COMPLETED (FMEM, Bug fixes, Testing)"
+        """
+        import re
+        
+        # Extract date
+        filename = os.path.basename(filepath)
+        date_match = re.search(r'(\d{4}-\d{2}-\d{2})', filename)
+        if date_match:
+            date = date_match.group(1)
+        else:
+            # Try to extract from first # heading
+            heading_match = re.search(r'^#\s+(Session\s+)?(\d{4}-\d{2}-\d{2})', content, re.MULTILINE)
+            if heading_match:
+                date = heading_match.group(2)
+            else:
+                date = "Session"
+        
+        # Extract all ## headings (topics)
+        topics = []
+        for match in re.finditer(r'^##\s+(.+)$', content, re.MULTILINE):
+            topic = match.group(1).strip()
+            # Clean up: remove emojis, truncate
+            topic = re.sub(r'^[\s\-\*\✓\✅\⚠️\❌]+', '', topic)  # Remove leading symbols
+            topic = topic.split(':')[0][:30]  # Truncate and remove sub-details
+            if topic and topic not in ['Next Steps', 'Technical Notes']:
+                topics.append(topic)
+        
+        # Remove duplicates while preserving order
+        seen = set()
+        unique_topics = []
+        for t in topics:
+            if t.lower() not in seen:
+                seen.add(t.lower())
+                unique_topics.append(t)
+        
+        # Count status keywords
+        completed_count = len(re.findall(r'(COMPLETED|✅|✓|DONE|FIXED)', content))
+        in_progress_count = len(re.findall(r'(IN PROGRESS|🔄|→)', content))
+        
+        # Build summary
+        summary_parts = [f"{date}: {len(unique_topics)} topics"]
+        
+        # Add status counts
+        status_parts = []
+        if completed_count > 0:
+            status_parts.append(f"{completed_count} COMPLETED")
+        if in_progress_count > 0:
+            status_parts.append(f"{in_progress_count} IN PROGRESS")
+        
+        if status_parts:
+            summary_parts.append(f"{', '.join(status_parts)}")
+        
+        # Add top 2-3 topics as examples (prioritize COMPLETED ones)
+        if len(unique_topics) > 0:
+            # Prioritize topics that appear before COMPLETED keyword
+            topic_examples = unique_topics[:3]
+            summary_parts.append(f"({', '.join(topic_examples)})")
+        
+        summary = ' • '.join(summary_parts)
+        
+        # Truncate
+        if len(summary) > 150:
+            summary = summary[:147] + '...'
+        
+        return summary if summary else f"Session {date}"
+    
+    def _extract_regular_summary(self, content: str, filepath: str) -> str:
+        """
+        Extract summary from regular documents.
+        
+        Uses first # heading + first meaningful paragraph.
+        
+        Args:
+            content: File content
+            filepath: File path
+            
+        Returns:
+            Summary like: "BingeWatching Tracker • Personal entertainment tracking system"
         """
         import re
         
@@ -1572,7 +1691,7 @@ class MemoryRetrieval:
         summary_parts = []
         
         # 1. Get title from first # heading (if exists)
-        for line in lines[:10]:  # Check first 10 lines
+        for line in lines[:10]:
             if line.startswith('# ') and not line.startswith('## '):
                 title = line[2:].strip()
                 # Remove emoji if present
@@ -1581,7 +1700,7 @@ class MemoryRetrieval:
                     summary_parts.append(title)
                     break
         
-        # 2. Get first meaningful paragraph (not empty, not code, not table)
+        # 2. Get first meaningful paragraph
         for line in lines[:20]:
             line = line.strip()
             if (line and 
@@ -1591,44 +1710,33 @@ class MemoryRetrieval:
                 not line.startswith('- ') and
                 not line.startswith('* ') and
                 len(line) > 30):
-                # Truncate to ~80 chars
                 if len(line) > 80:
                     line = line[:77] + '...'
                 summary_parts.append(line)
                 break
         
-        # 3. Extract key stats if present
+        # 3. Extract key stats
         stats = []
         stat_patterns = [
             r'(\d+)\s+(?:movies?|films?)',
             r'(\d+)\s+(?:series?|shows?)',
             r'(\d+)\s+(?:episodes?)',
-            r'(\d+)\s+(?:projects?)',
-            r'(\d+)\s+(?:files?)',
         ]
         for pattern in stat_patterns:
-            matches = re.findall(pattern, content.lower()[:5000])  # Check first 5000 chars
-            if matches:
-                # Get the matched text with context
-                for match in re.finditer(pattern, content.lower()[:5000]):
-                    start = max(0, match.start() - 5)
-                    end = min(len(content), match.end() + 20)
-                    stat_text = content[start:end].strip()
-                    stats.append(stat_text)
-                break  # Only first match type
+            match = re.search(pattern, content.lower()[:5000])
+            if match:
+                stats.append(match.group(0))
+                break
         
-        # Build final summary
+        # Build summary
         if summary_parts:
             base_summary = ' • '.join(summary_parts[:2])
         else:
-            # Fallback: filename without extension
-            base_summary = os.path.splitext(os.path.basename(filepath))[0].replace('-', ' ').replace('_', ' ').title()
+            base_summary = os.path.splitext(os.path.basename(filepath))[0].replace('-', ' ').title()
         
-        # Add stats if found
         if stats:
             base_summary += f" ({stats[0]})"
         
-        # Truncate to reasonable length
         if len(base_summary) > 120:
             base_summary = base_summary[:117] + '...'
         
