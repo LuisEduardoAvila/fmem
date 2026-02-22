@@ -374,6 +374,23 @@ def chunk_markdown(content: str, filepath: str, min_chunk_size: int = 50,
     else:
         effective_chunk_size = 5000
     
+    # Hybrid chunking: use md2chunks for table-heavy files
+    if MD2CHUNKS_AVAILABLE:
+        tables = extract_tables(content)
+        if tables:
+            logger.info(f"Using md2chunks for {filepath}: {len(tables)} tables detected")
+            # Convert md2chunks output to ChunkMetadata
+            raw_chunks = md2chunks_split(content, max_chars=effective_chunk_size, overlap=100)
+            for i, raw in enumerate(raw_chunks):
+                chunks.append(_create_chunk(
+                    filename=filename,
+                    heading=raw['context'] or raw['type'].title(),
+                    content=raw['text'],
+                    parent_file=filepath,
+                    chunk_index=i
+                ))
+            return chunks
+    
     # Split content by ## headings
     parts = []
     last_end = 0
@@ -534,6 +551,13 @@ except ImportError:
     raise ImportError(
         "litellm not installed. Run: pip install --break-system-packages litellm"
     )
+
+# Import md2chunks splitter (new hybrid chunking for tables)
+try:
+    from .md2chunks_splitter import md2chunks_split, extract_tables
+    MD2CHUNKS_AVAILABLE = True
+except ImportError:
+    MD2CHUNKS_AVAILABLE = False
 
 
 # ============================================================================
