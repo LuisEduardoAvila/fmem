@@ -549,8 +549,26 @@ fmem uses a configuration file at `~/.openclaw/memory/fmem.conf`. For detailed c
 | `ollama_url` | `http://localhost:11434` | Ollama API endpoint for embeddings |
 | **Search Settings** | | |
 | `min_similarity_threshold` | `0.3` | Minimum cosine similarity (0.0-1.0) for results |
-| `rate_limit_requests` | `10` | Maximum Ollama API calls per window |
+| `rate_limit_requests` | `600` | Maximum Ollama API calls per minute (see below) |
 | `rate_limit_window_seconds` | `60` | Rate limiting window in seconds |
+
+**Rate Limiting Tuning:**
+
+The `rate_limit_requests` setting controls how fast fmem sends embedding requests to Ollama. Tune based on your hardware:
+
+```ini
+# Raspberry Pi 5 (tested): 600/min = 10 req/sec
+rate_limit_requests = 600
+
+# Desktop/Workstation: 3000/min = 50 req/sec
+# rate_limit_requests = 3000
+
+# Server/GPU: 6000/min = 100 req/sec
+# rate_limit_requests = 6000
+```
+
+Too high → Ollama timeouts. Too low → slow indexing. Start with 600 and increase if needed.
+
 | **File Indexing** | | |
 | `additional_dirs` | *(varies)* | Directories to recursively auto-index |
 | `exclude_dirs` | `venv,__pycache__,node_modules` | Directories to exclude from indexing |
