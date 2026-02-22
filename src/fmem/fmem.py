@@ -1552,6 +1552,88 @@ class MemoryRetrieval:
         
         return False
     
+    def _extract_file_summary(self, content: str, filepath: str) -> str:
+        """
+        Extract a brief summary of the file from its content.
+        
+        This summary is stored in doc_metadata and used for context injection
+        to give the LLM an overview of what the file contains.
+        
+        Args:
+            content: Full file content
+            filepath: Path to the file
+            
+        Returns:
+            Brief summary string (50-120 chars)
+        """
+        import re
+        
+        lines = content.split('\n')
+        summary_parts = []
+        
+        # 1. Get title from first # heading (if exists)
+        for line in lines[:10]:  # Check first 10 lines
+            if line.startswith('# ') and not line.startswith('## '):
+                title = line[2:].strip()
+                # Remove emoji if present
+                title = re.sub(r'^[^\w]*', '', title)
+                if len(title) > 10:
+                    summary_parts.append(title)
+                    break
+        
+        # 2. Get first meaningful paragraph (not empty, not code, not table)
+        for line in lines[:20]:
+            line = line.strip()
+            if (line and 
+                not line.startswith('#') and 
+                not line.startswith('```') and 
+                not line.startswith('|') and
+                not line.startswith('- ') and
+                not line.startswith('* ') and
+                len(line) > 30):
+                # Truncate to ~80 chars
+                if len(line) > 80:
+                    line = line[:77] + '...'
+                summary_parts.append(line)
+                break
+        
+        # 3. Extract key stats if present
+        stats = []
+        stat_patterns = [
+            r'(\d+)\s+(?:movies?|films?)',
+            r'(\d+)\s+(?:series?|shows?)',
+            r'(\d+)\s+(?:episodes?)',
+            r'(\d+)\s+(?:projects?)',
+            r'(\d+)\s+(?:files?)',
+        ]
+        for pattern in stat_patterns:
+            matches = re.findall(pattern, content.lower()[:5000])  # Check first 5000 chars
+            if matches:
+                # Get the matched text with context
+                for match in re.finditer(pattern, content.lower()[:5000]):
+                    start = max(0, match.start() - 5)
+                    end = min(len(content), match.end() + 20)
+                    stat_text = content[start:end].strip()
+                    stats.append(stat_text)
+                break  # Only first match type
+        
+        # Build final summary
+        if summary_parts:
+            base_summary = ' • '.join(summary_parts[:2])
+        else:
+            # Fallback: filename without extension
+            base_summary = os.path.splitext(os.path.basename(filepath))[0].replace('-', ' ').replace('_', ' ').title()
+        
+        # Add stats if found
+        if stats:
+            base_summary += f" ({stats[0]})"
+        
+        # Truncate to reasonable length
+        if len(base_summary) > 120:
+            base_summary = base_summary[:117] + '...'
+        
+        return base_summary
+    
     def _calculate_recency_score(self, last_modified: float, filepath: str = None) -> float:
         """
         Calculate recency score for a document based on its modification time.
@@ -2073,13 +2155,17 @@ class MemoryRetrieval:
                         created_at = doc.get('created_at', created_at)
                         break
                 
+                # Compute document summary from first meaningful heading/paragraph
+                file_summary = self._extract_file_summary(content, filepath)
+                
                 metadata = {
                     'filepath': filepath,
                     'content': content,
                     'last_modified': int(file_mtime) if file_mtime else int(datetime.datetime.now().timestamp()),
                     'created_at': created_at,
                     'is_chunked': True,
-                    'chunk_count': len(chunk_embeddings)  # Only count successfully embedded chunks
+                    'chunk_count': len(chunk_embeddings),  # Only count successfully embedded chunks
+                    'summary': file_summary  # Pre-computed file overview
                 }
                 
                 # Add document metadata (pointing to chunks)
@@ -2112,12 +2198,16 @@ class MemoryRetrieval:
                         created_at = doc.get('created_at', created_at)
                         break
                 
+                # Compute document summary
+                file_summary = self._extract_file_summary(content, filepath)
+                
                 metadata = {
                     'filepath': filepath,
                     'content': content,
                     'last_modified': int(file_mtime) if file_mtime else int(datetime.datetime.now().timestamp()),
                     'created_at': created_at,
-                    'is_chunked': False
+                    'is_chunked': False,
+                    'summary': file_summary  # Pre-computed file overview
                 }
                 
                 # Check if document already exists

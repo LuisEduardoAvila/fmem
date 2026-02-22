@@ -267,6 +267,47 @@ def format_results(results: list, max_preview: int = 200, chunk_mode: str = "chu
             source_context = f"{doc_type} from {dirname}/{filename}"
             
             output.append(f"[{idx}] {relevance}: {source_context}")
+            # Include full path for potential file reading (security: local paths only)
+            output.append(f"   Source: {filepath}")
+            
+            # OPTION C: Combine pre-computed summary + dynamic stats
+            # Get pre-computed summary from doc_metadata (if available)
+            precomputed_summary = ""
+            dynamic_stats = ""
+            
+            # Try to get pre-computed summary from the first result's metadata
+            # (In a real implementation, we'd pass mr instance to format_results)
+            # For now, we'll use the _extract_file_summary which combines both
+            
+            # Get dynamic stats from relevant chunks
+            stats_found = []
+            for r in file_results:
+                content = r.get('content', '')
+                import re
+                stat_matches = re.findall(r'(\d+\s+(?:movies?|series?|episodes?|shows?|tracked|watched))', content.lower())
+                if stat_matches:
+                    stats_found.extend(stat_matches)
+            
+            if stats_found:
+                dynamic_stats = f"Relevant stats: {', '.join(set(stats_found[:3]))}"
+            
+            # Get file summary (pre-computed from doc_metadata via heuristic)
+            # In actual implementation, this would come from mr.doc_metadata[filepath]['summary']
+            file_summary_summary = _extract_file_summary(file_results)
+            
+            # Combine: Pre-computed overview + dynamic stats from search
+            if file_summary_summary and dynamic_stats:
+                combined_summary = f"{file_summary_summary} | {dynamic_stats}"
+            elif file_summary_summary:
+                combined_summary = file_summary_summary
+            elif dynamic_stats:
+                combined_summary = dynamic_stats
+            else:
+                combined_summary = ""
+            
+            if combined_summary:
+                output.append(f"   About this file: {combined_summary}")
+            
             output.append("")
             
             # Include each chunk from this file
@@ -384,7 +425,52 @@ def slugify(text: str) -> str:
     text = re.sub(r'-+', '-', text)
     return text if text else 'section'
 
-def get_context_for_message(message: str, top_k: int = 3, chunk_mode: str = "chunk") -> str:
+
+def _extract_file_summary(file_results: list) -> str:
+    """
+    Extract a brief summary of the file based on its chunks.
+    
+    This gives the LLM context about what the file contains overall,
+    helping it decide whether to read the full file.
+    
+    Args:
+        file_results: List of chunk results from this file
+        
+    Returns:
+        Brief summary string (or empty if can't extract)
+    """
+    if not file_results:
+        return ""
+    
+    # Collect headings and key stats from chunks
+    headings = []
+    stats = []
+    
+    for r in file_results:
+        chunk_info = r.get('chunk_info', {})
+        heading = chunk_info.get('heading', '')
+        content = r.get('content', '')
+        
+        # Collect meaningful headings (not generic "Text")
+        if heading and heading not in ['Text', 'Section']:
+            headings.append(heading)
+        
+        # Extract stats/numbers mentioned
+        stat_matches = re.findall(r'(\d+\s+(?:movies|series|episodes|shows|tracked|watched))', content.lower())
+        stats.extend(stat_matches)
+    
+    # Build summary
+    summary_parts = []
+    
+    # If we have headings, show first meaningful one as file topic
+    if headings:
+        summary_parts.append(f"Topics: {', '.join(headings[:2])}")
+    
+    # If we have stats, include them
+    if stats:
+        summary_parts.append(f"Contains: {', '.join(set(stats[:3]))}")
+    
+    return ' • '.join(summary_parts) if summary_parts else ""
     """
     Main entry point: Get formatted context for a message.
     
