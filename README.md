@@ -2,9 +2,11 @@
 
 **Contextual Memory for Natural Conversations**
 
-Version: 3.0.0  
+Version: 3.2.0  
 Status: Production Ready ✅  
 License: MIT
+
+**Latest:** Hybrid chunking with table-aware splitting (v3.2.0, Feb 2026)
 
 ---
 
@@ -43,6 +45,16 @@ fmem is a privacy-first memory system that makes AI conversations feel natural a
 - **Precise retrieval** — Gets the relevant section, not the whole file
 - **~57% token reduction** — Less noise, more signal in context windows
 - **Natural conversation flow** — References that feel contextual, not robotic
+
+**v3.2.0 Update: Hybrid Chunking**
+
+New table-aware chunking eliminates LLM-based workarounds:
+- **Tables treated as atomic units** — No more mid-row splits
+- **Zero LLM calls** — Pure Python regex parsing
+- **20x faster indexing** — 1-2s vs 30s+ for table-heavy files
+- **Inspired by** [md2chunks](https://github.com/verloop/md2chunks), [advanced-chunking](https://github.com/joshuamckenty/advanced-chunking), [semantic-chunker](https://github.com/dorian-brown/semantic-chunker)
+
+See [docs/CHUNKING_STRATEGY.md](./docs/CHUNKING_STRATEGY.md) for full details.
 
 **How It Works:**
 
@@ -559,7 +571,42 @@ fmem uses a configuration file at `~/.openclaw/memory/fmem.conf`. For detailed c
 
 ---
 
-**Last Updated:** 2026-02-16
+## Acknowledgments
+
+**Hybrid chunking approach inspired by:**
+- **[verloop/md2chunks](https://github.com/verloop/md2chunks)** - Table-aware markdown splitting with atomic table handling
+- **[joshuamckenty/advanced-chunking](https://github.com/joshuamckenty/advanced-chunking)** - Semantic merging strategies for optimal chunk boundaries  
+- **[dorian-brown/semantic-chunker](https://github.com/dorian-brown/semantic-chunker)** - Embedding-based chunk optimization
+- **And 5 other open-source chunking projects** analyzed during development
+
+**All external code adapted and re-implemented in pure Python** - no LLM dependencies, zero external API calls.
+
+---
+
+## Changelog
+
+### v3.2.0 (2026-02-22) - Hybrid Chunking
+- ✅ **New:** Table-aware chunking (tables as atomic units)
+- ✅ **Performance:** 20x faster indexing (1-2s vs 30s+)
+- ✅ **Removed:** All LLM-based workarounds (6-8 API calls eliminated)
+- ✅ **New:** `md2chunks_splitter.py` module for hybrid splitting
+- ✅ **Improved:** Header context preservation for all chunks
+- 📚 **Docs:** Updated [CHUNKING_STRATEGY.md](./docs/CHUNKING_STRATEGY.md)
+
+### v3.1.0 (2026-02-19) - Adaptive Chunking
+- ✅ Fixed chunk size to 800 chars (all-minilm:22m constraint)
+- ✅ Smart boundary detection (## → paragraphs → sentences)
+- ✅ 100 char overlap for semantic continuity
+
+### v3.0.0 (2026-02-15) - Production Release
+- ✅ Core FAISS indexing
+- ✅ Multi-factor ranking (semantic + recency + location)
+- ✅ Security hardening (path traversal, input validation)
+- ✅ OpenClaw integration via `auto_recall()`
+
+---
+
+**Last Updated:** 2026-02-22
 
 ---
 

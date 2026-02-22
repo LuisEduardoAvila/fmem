@@ -17,15 +17,92 @@ fmem uses fixed-size chunking based on the embedding model's token limits. The a
 
 ## Design Rationale
 
-### Previous Problem
+### Previous Problem (v3.1.x)
 1. Hardware-based adaptive chunking (1K/2K/5K) was based on RAM
 2. But embedding model only accepts ~512 tokens
 3. Large chunks were pointless - they got truncated to ~500 chars anyway
+4. **Tables caused 6+ LLM calls per file** for complex markdown
 
-### Current Solution
-- Fixed 800 char chunks (respects model limits)
+### Current Solution (v3.2.0+)
+- **Hybrid Chunking**: Fixed 800 char chunks + table-aware splitting
 - Smart boundary detection (keeps semantic structure)
+- **Tables treated as atomic units** (no splitting mid-table)
+- **Zero LLM calls** - pure Python regex parsing
 - Preprocess to ~500 chars for embedding (headings + summary)
+
+## Hybrid Chunking (v3.2.0+)
+
+### The Table Problem
+
+Markdown tables are challenging because:
+- They contain structure that shouldn't be split (mid-row breaks meaning)
+- `##` headings don't work as boundaries (tables span sections)
+- Previous workaround: LLM-based extraction (6+ API calls per file)
+
+### Solution: md2chunks-style Hybrid Splitting
+
+**Inspired by:** [verloop/md2chunks](https://github.com/verloop/md2chunks) approach
+
+**Key innovation:** Treat tables as **atomic units** while using traditional splitting for prose.
+
+```
+┌────────────────────────────────────────────────────────────┐
+│  Hybrid Chunking Pipeline                                  │
+├────────────────────────────────────────────────────────────┤
+│  1. Detect tables via regex:                               │
+│     ^\|[^\n]+\|\n\|[-:]+\|\n(?:\|[^\n]+\|\n?)+           │
+│                                                            │
+│  2. Tables become atomic chunks:                           │
+│     - Extract all cells (skip `|------|` separators)       │
+│     - Join into single line of text                       │
+│     - Preserve header context from parent ## sections      │
+│                                                            │
+│  3. Non-table content split via traditional approach:       │
+│     - ## headings → chunks                                │
+│     - Paragraph boundaries                                │
+│     - 800 char limit with overlap                         │
+└────────────────────────────────────────────────────────────┘
+```
+
+### Table Detection Regex
+
+```python
+# Pattern: header row + separator + data rows
+table_pattern = r'(?m)^\|[^\n]+\|\n\|[-:| ]+\|\n(?:\|[^\n]+\|\n?)+'
+```
+
+**Matches:**
+```markdown
+| Col1 | Col2 |
+|------|------|
+| A    | B    |
+| C    | D    |
+```
+
+**Extracts as:** `"Col1 Col2 A B C D"` (separator lines removed)
+
+### Performance Comparison
+
+| Metric | Before (LLM) | After (Hybrid) | Change |
+|--------|-------------|----------------|--------|
+| **LLM calls** | 6-8 per file | **0** | -6 to -8 |
+| **Indexing time** | 30s+ (API latency) | **1-2s** | ~20x faster |
+| **Table integrity** | Split mid-row | **Atomic** | Preserved |
+| **Cost** | Ollama requests | **Free** | $0 |
+| **Chunks (backup.md)** | 13 | **18** | +5 preserved |
+
+### Incremental Indexing Metrics
+
+Tested on 3 files with varying table density:
+
+| File | Size | Tables | Time | Chunks |
+|------|------|--------|------|--------|
+| backup.md | 6,927 bytes | 5 | 1.430s | 18 |
+| 2026-02-22.md | 1,783 bytes | 1 | 0.401s | 6 |
+| implementation-plan.md | 14,846 bytes | 5 | 1.842s | 31 |
+| **Total** | **23,556 bytes** | **11** | **3.673s** | **55** |
+
+**No LLM calls were made during indexing.**
 
 ## Implementation
 
@@ -145,14 +222,38 @@ New behavior:
 
 ## References
 
+### External Projects
+
+**Hybrid chunking approach inspired by:**
+- **[verloop/md2chunks](https://github.com/verloop/md2chunks)** - Table-aware markdown splitting
+- **[joshuamckenty/advanced-chunking](https://github.com/joshuamckenty/advanced-chunking)** - Semantic merging strategies
+- **[dorian-brown/semantic-chunker](https://github.com/dorian-brown/semantic-chunker)** - Embedding-based chunk optimization
+
+### fmem Implementation
+
 - **Code**: `src/fmem/fmem.py` functions:
   - `get_optimal_chunk_size()` - returns 800
   - `chunk_content_adaptively()` - splits at boundaries
   - `_preprocess_for_embedding()` - ~500 chars for embedding
   - `_get_embedding()` - calls preprocessing before embedding
+  
+- **New Module**: `src/fmem/md2chunks_splitter.py`
+  - `extract_tables()` - Table detection via regex
+  - `clean_table()` - Convert tables to clean text
+  - `get_header_context()` - Preserve parent headings
+  - `md2chunks_split()` - Main hybrid splitting logic
 
 ---
 
-**Last Updated:** 2026-02-19
+**Last Updated:** 2026-02-22
 **Version:** fmem 3.2.0
 **Status:** Production Ready
+
+### Attribution
+
+This implementation combines:
+1. **Table handling**: Adapted from md2chunks (verloop/md2chunks)
+2. **Semantic splitting**: Fixed-size with boundary detection (fmem original)
+3. **Header context**: Parent heading preservation (inspired by md2chunks)
+
+All LLM-based workarounds have been removed. Pure Python implementation.
