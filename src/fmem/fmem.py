@@ -658,6 +658,10 @@ class ConfigManager:
                 # Batch limits
                 self.max_files_per_batch = self.config.getint('settings', 'max_files_per_batch', fallback=self.DEFAULT_MAX_FILES_PER_BATCH)
                 
+                # Rate limiting settings (NEW - now configurable)
+                self.rate_limit_requests = self.config.getint('settings', 'rate_limit_requests', fallback=600)
+                self.rate_limit_window_seconds = self.config.getint('settings', 'rate_limit_window_seconds', fallback=60)
+                
                 # Location-based importance weights for directories
                 self.location_weights = {
                     # High importance - formal documentation and decisions
@@ -1342,8 +1346,12 @@ class MemoryRetrieval:
         self.doc_metadata = []  # List of {filepath, content, last_modified}
         self.db_path = db_path or self.config.sqlite_path
         self.conn = None
-        # Rate limiter for Ollama API (10 requests per 60 seconds)
-        self.rate_limiter = RateLimiter(max_requests=600, window_seconds=60)  # 10 req/sec sustainable
+        # Rate limiter for Ollama API - now configurable via config file
+        # Default: 600 requests per 60 seconds = 10 req/sec (sustainable on Pi 5)
+        # For faster processors: set rate_limit_requests = 3000 in fmem.conf
+        max_requests = getattr(self.config, 'rate_limit_requests', 600)
+        window_seconds = getattr(self.config, 'rate_limit_window_seconds', 60)
+        self.rate_limiter = RateLimiter(max_requests=max_requests, window_seconds=window_seconds)
         # Embedding cache with TTL (1 hour) and LRU eviction (max 10000 entries)
         self.embedding_cache = _LRUCache(maxsize=10000, ttl=3600)
         # Chunk-to-document mapping: maps FAISS index -> (filepath, chunk_id)
