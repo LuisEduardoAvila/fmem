@@ -8,7 +8,7 @@ Complete reference for the fmem Python API.
 
 Main class for memory search operations.
 
-### `__init__(db_path=None, config=None, ollama_client=None)`
+### `__init__(db_path=None, config=None)`
 
 Initialize memory retrieval system.
 
@@ -17,7 +17,6 @@ Initialize memory retrieval system.
 |-----------|------|---------|-------------|
 | `db_path` | `str` | `None` | SQLite database path. Uses config default if None. |
 | `config` | `ConfigManager` | `None` | ConfigManager instance. Uses global CONFIG if None. |
-| `ollama_client` | `OllamaClient` | `None` | Ollama client for embeddings. Auto-created if None. |
 
 **Returns:**
 `MemoryRetrieval` instance
@@ -269,7 +268,7 @@ for path in paths:
 
 ### `health_check()`
 
-Verify system health (Ollama connection, index state).
+Verify system health (FastEmbed model, index state).
 
 **Returns:**
 `bool` - True if healthy
@@ -279,7 +278,7 @@ Verify system health (Ollama connection, index state).
 if memory.health_check():
     print("All systems operational")
 else:
-    print("Check Ollama connection")
+    print("Check FastEmbed model")
 ```
 
 ---
@@ -291,7 +290,7 @@ Get complete system status.
 **Returns:**
 `Dict` with keys:
 - `healthy` (bool): Overall health status
-- `ollama` (bool): Ollama connection status
+- `embedding` (str): Embedding model name
 - `index_loaded` (bool): Whether FAISS index is loaded
 - `doc_count` (int): Number of documents
 - `chunk_count` (int): Number of chunks
@@ -301,7 +300,7 @@ Get complete system status.
 ```python
 status = memory.get_status()
 print(f"Documents: {status['doc_count']}")
-print(f"Ollama: {'✓' if status['ollama'] else '✗'}")
+print(f"Embedding: {status['embedding']}")
 ```
 
 ---
@@ -448,7 +447,7 @@ Configuration management with environment variable support.
 | Setting | Description | Default |
 |---------|-------------|---------|
 | `data_dir` | Storage directory | `~/.openclaw/memory` |
-| `ollama_url` | Ollama endpoint | `http://localhost:11434` |
+| `embedding_model` | FastEmbed model name | `sentence-transformers/all-MiniLM-L6-v2` |
 | `VALID_EXTENSIONS` | Allowed file extensions | `.md, .txt, .py, .json, .yaml, .yml, .csv` |
 | `MAX_FILE_SIZE` | Maximum file size (bytes) | 50MB |
 | `MAX_BATCH_SIZE` | Max batch size for indexing | 100 |
@@ -474,9 +473,12 @@ logging.getLogger("fmem").setLevel(logging.DEBUG)
 
 ---
 
-## Rate Limiting
+## Performance
 
-Embedding generation is rate-limited (hardcoded at 10 requests/minute) to prevent Ollama overload. This is automatic and requires no configuration.
+FastEmbed provides local ONNX-based embeddings with excellent performance characteristics:
+- **Per-text latency:** ~3ms (vs ~67ms with HTTP-based embeddings)
+- **Batch processing:** Up to 100+ texts per second
+- **No external dependencies:** Runs entirely locally
 
 ---
 

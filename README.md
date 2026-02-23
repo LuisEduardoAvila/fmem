@@ -653,28 +653,8 @@ fmem uses a configuration file at `~/.openclaw/memory/fmem.conf`. For detailed c
 |---------|---------|-------------|
 | **Core Settings** | | |
 | `data_dir` | `~/.openclaw/memory/` | Storage location for indexes and metadata |
-| `ollama_url` | `http://localhost:11434` | Ollama API endpoint for embeddings |
 | **Search Settings** | | |
 | `min_similarity_threshold` | `0.3` | Minimum cosine similarity (0.0-1.0) for results |
-| `rate_limit_requests` | `600` | Maximum Ollama API calls per minute (see below) |
-| `rate_limit_window_seconds` | `60` | Rate limiting window in seconds |
-
-**Rate Limiting Tuning:**
-
-The `rate_limit_requests` setting controls how fast fmem sends embedding requests to Ollama. Tune based on your hardware:
-
-```ini
-# Raspberry Pi 5 (tested): 600/min = 10 req/sec
-rate_limit_requests = 600
-
-# Desktop/Workstation: 3000/min = 50 req/sec
-# rate_limit_requests = 3000
-
-# Server/GPU: 6000/min = 100 req/sec
-# rate_limit_requests = 6000
-```
-
-Too high → Ollama timeouts. Too low → slow indexing. Start with 600 and increase if needed.
 
 | **File Indexing** | | |
 | `additional_dirs` | *(varies)* | Directories to recursively auto-index |
@@ -697,6 +677,9 @@ Too high → Ollama timeouts. Too low → slow indexing. Start with 600 and incr
 ---
 
 ## Acknowledgments
+
+**Embedding Technology:**
+- **[qdrant/FastEmbed](https://github.com/qdrant/fastembed)** - Local ONNX-based embeddings without external API calls. Production-ready embedding models running locally on CPU with excellent performance characteristics.
 
 **Hybrid chunking approach inspired by:**
 - **[verloop/md2chunks](https://github.com/verloop/md2chunks)** - Table-aware markdown splitting with atomic table handling

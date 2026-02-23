@@ -11,47 +11,32 @@ Before installing fmem, ensure you have:
 | Requirement | Minimum Version | Notes |
 |-------------|---------------|-------|
 | Python | 3.9+ | 3.10+ recommended |
-| Ollama | Latest | Required for local embeddings |
 | pip | Latest | For package installation |
 | ~500MB disk | - | For index and dependencies |
 
----
-
-## Step 1: Install Ollama
-
-fmem uses Ollama for local embeddings. No external API calls needed.
-
-### On Linux/macOS
-```bash
-curl -fsSL https://ollama.com/install.sh | sh
-```
-
-### On Raspberry Pi (ARM64)
-```bash
-curl -fsSL https://ollama.com/install.sh | sh
-# Note: First run may take 5-10 minutes on ARM64
-```
-
-### Verify Installation
-```bash
-ollama --version
-```
+**Note:** fmem uses **FastEmbed** for local embeddings - no external services required.
 
 ---
 
-## Step 2: Pull Embedding Model
+## Step 1: Install Dependencies
 
-fmem uses `nomic-embed-text` for semantic search:
+fmem requires Python and standard ML libraries. No external embedding service needed.
+
+### Required Packages
 
 ```bash
-ollama pull nomic-embed-text
+pip install faiss-cpu fastembed numpy --break-system-packages --user
 ```
 
-This downloads a 768-dimensional embedding model optimized for semantic similarity.
+On ARM64 (Raspberry Pi):
+```bash
+pip install faiss-cpu numpy --index-url https://piwheels.org/simple
+pip install fastembed --break-system-packages --user
+```
 
 ---
 
-## Step 3: Install fmem
+## Step 2: Install fmem
 
 ### Option A: Install from PyPI (Recommended)
 ```bash
@@ -70,12 +55,12 @@ pip install -e . --break-system-packages --user
 
 ### Option C: Install with Dependencies Manually
 ```bash
-pip install faiss-cpu numpy litellm
+pip install faiss-cpu fastembed numpy
 ```
 
 ---
 
-## Step 4: Create Configuration
+## Step 3: Create Configuration
 
 Create the configuration file at `~/.openclaw/memory/fmem.conf`:
 
@@ -87,7 +72,6 @@ Create the config file:
 ```ini
 [settings]
 data_dir = ~/.openclaw/memory
-ollama_url = http://localhost:11434
 
 # Directories to index (comma-separated)
 additional_dirs = ~/Documents/notes, ~/projects
@@ -116,7 +100,7 @@ location_weight = 0.2
 
 ---
 
-## Step 5: Verify First Run
+## Step 4: Verify First Run
 
 ### Check System Status
 ```bash
@@ -132,12 +116,12 @@ Chunks indexed: 0
 
 Configuration:
   Data directory: /home/user/.openclaw/memory
-  Ollama URL: http://localhost:11434
+  Embedding: FastEmbed (local)
 ```
 
 ---
 
-## Step 6: Index Your First Documents
+## Step 5: Index Your First Documents
 
 ### Auto-index configured directories
 ```bash
@@ -158,31 +142,6 @@ fmem index /path/to/file.md
 
 ## Troubleshooting
 
-### "Ollama not running" Error
-```bash
-# Start Ollama service
-ollama serve
-
-# Or check if running
-curl http://localhost:11434/api/tags
-```
-
-### Port Already in Use
-If port 11434 is already in use:
-```bash
-# Find and kill existing process
-lsof -ti:11434 | xargs kill -9
-
-# Or use different port
-export FMEM_OLLAMA_URL="http://localhost:11435"
-```
-
-### Permission Denied on Config
-```bash
-# Ensure proper permissions
-chmod 644 ~/.openclaw/memory/fmem.conf
-```
-
 ### "No module named 'faiss'"
 ```bash
 # Install FAISS CPU version
@@ -190,6 +149,12 @@ pip install faiss-cpu --break-system-packages --user
 
 # On ARM64 (Raspberry Pi):
 pip install faiss-cpu numpy --index-url https://piwheels.org/simple
+```
+
+### "No module named 'fastembed'"
+```bash
+# Install FastEmbed
+pip install fastembed --break-system-packages --user
 ```
 
 ### Index Directory Not Found
@@ -203,7 +168,7 @@ mkdir -p ~/Documents/notes
 ```
 
 ### Slow Indexing on First Run
-- Ollama model downloads on first use
+- FastEmbed downloads embedding model on first use
 - Subsequent runs are much faster
 - Consider indexing in batches for large directories
 
@@ -216,7 +181,6 @@ Override config file settings with environment variables:
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `FMEM_DATA_DIR` | Storage directory | `~/.openclaw/memory` |
-| `OLLAMA_HOST` | Ollama API URL | `http://localhost:11434` |
 | `FMEM_CONFIG` | Config file path | `~/.openclaw/memory/fmem.conf` |
 | `FMEM_DEBUG` | Enable debug logging | `false` |
 

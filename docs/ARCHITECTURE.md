@@ -26,9 +26,9 @@
 ┌─────────────────────────────────────────────────────────────────────────┐
 │                           Embedding Layer                                │
 │  ┌────────────────────────────────────────────────────────────────────┐ │
-│  │                         Ollama (Local)                              │ │
-│  │             Model: all-minilm:22m (384 dimensions)                │ │
-│  │             (768 dimensions: nomic-embed-text - legacy)            │ │
+│  │                     FastEmbed (Local ONNX)                          │ │
+│  │         Model: sentence-transformers/all-MiniLM-L6-v2          │ │
+│  │         (384 dimensions, ~3ms per embedding)                      │ │
 │  └────────────────────────────────────────────────────────────────────┘ │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
@@ -160,7 +160,7 @@ Critical mapping that links FAISS indices to documents/chunks:
 - TTL: 1 hour
 - Eviction: Least recently used
 
-**Purpose:** Avoid redundant Ollama API calls for identical text
+**Purpose:** Cache embeddings to avoid redundant model inference for identical text
 
 ### 6. Configuration System
 
@@ -171,7 +171,7 @@ Critical mapping that links FAISS indices to documents/chunks:
 
 **Key Settings:**
 - `data_dir`: Storage location
-- `ollama_url`: Embedding service endpoint
+- `embedding_model`: FastEmbed model name (default: sentence-transformers/all-MiniLM-L6-v2)
 - `max_file_size`: 50MB limit
 - `extensions`: Whitelist (.md, .txt, .py, etc.)
 
@@ -287,15 +287,15 @@ flowchart LR
    - No string interpolation in SQL
 
 4. **Embedding Safety**
-   - Content size validation before Ollama call
-   - Timeout handling (30s)
-   - Retry logic with backoff
+   - Content size validation before embedding
+   - Batch processing for efficiency
+   - Model error handling
 
 ### Trust Boundaries
 
 - **Inside fmem:** Trusted (validated at entry points)
 - **File System:** Untrusted (always validate paths)
-- **Ollama API:** Semi-trusted (timeout, error handling)
+- **FastEmbed:** Local execution (no external API)
 - **User Input:** Untrusted (validate everything)
 
 ## Performance Characteristics
@@ -320,7 +320,7 @@ flowchart LR
 
 ### Bottlenecks
 
-1. **Embedding Generation:** Ollama API call (~50-200ms per text)
+1. **Embedding Generation:** FastEmbed inference (~3ms per text)
 2. **FAISS Search:** Index size > 100k vectors
 3. **File I/O:** Large files (>10MB)
 4. **SQLite:** Without proper indexing on `parent_file`
@@ -431,7 +431,7 @@ memory.add_document(filepath, chunk_by_sections=False)
 
 ### Custom Embedding
 
-Replace Ollama with custom provider:
+Replace FastEmbed with custom provider:
 ```python
 class CustomMemoryRetrieval(MemoryRetrieval):
     def _get_embedding(self, text: str) -> Optional[np.ndarray]:
@@ -445,7 +445,7 @@ class CustomMemoryRetrieval(MemoryRetrieval):
 2. **Local filesystem only:** No network storage
 3. **Synchronous only:** No async/await support
 4. **English-optimized:** Token estimation assumes English text
-5. **Ollama-dependent:** Requires local Ollama instance
+5. **Local execution:** Runs on CPU (GPU acceleration not yet implemented)
 
 ## Future Architecture (MCP Phase)
 
@@ -506,10 +506,9 @@ graph TB
 ## References
 
 - FAISS Documentation: https://faiss.ai/
-- Ollama API: https://github.com/ollama/ollama/blob/main/docs/api.md
+- FastEmbed: https://github.com/qdrant/fastembed
 - MCP Specification: https://spec.modelcontextprotocol.io/
-- all-minilm:22m: https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2 (current, 384 dims)
-- nomic-embed-text: https://huggingface.co/nomic-ai/nomic-embed-text-v1 (legacy, 768 dims)
+- all-MiniLM-L6-v2: https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2 (current, 384 dims)
 
 ---
 
