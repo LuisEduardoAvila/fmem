@@ -193,6 +193,113 @@ You → Message → OpenClaw Auto-Searches fmem → Injects results
 
 ---
 
+## 💉 Context Injection Format
+
+When fmem retrieves memories, they're formatted into a structured context block that OpenClaw injects into the conversation. This format is designed to be **immediately useful to the LLM** while maintaining natural conversation flow.
+
+### Injection Structure
+
+```xml
+<retrieved_memory>
+
+I found {N} relevant memories for this conversation:
+
+[1] {Relevance}: {Document type} from {location}/{filename}
+   Source: {full_file_path}
+   About this file: {precomputed_summary} | {dynamic_stats}
+   
+   Under '{heading}':
+   {content_preview}
+   [relevance: {score}%]
+
+[2] {Relevance}: ...
+   ...
+
+</retrieved_memory>
+```
+
+### Why This Format Matters for the LLM
+
+**1. XML Tags (`<retrieved_memory>`)**
+- **Rationale:** Creates clear semantic boundaries between retrieved context and conversation history
+- **Benefit:** LLM can distinguish "this is external knowledge" vs "this is current conversation"
+- **Prevents:** Hallucinations where the LLM confuses retrieved facts with user statements
+
+**2. Relevance Ranking (`[1] Most relevant`, `[2] Also relevant`)**
+- **Rationale:** LLMs process information sequentially; early items get more attention
+- **Benefit:** Ensures the most important context appears first in the LLM's context window
+- **Impact:** Higher-quality responses when token limits are tight
+
+**3. Source Attribution (`Source: {filepath}`)**
+- **Rationale:** LLMs perform better when they understand information provenance
+- **Benefit:** Enables the LLM to cite sources naturally ("According to your notes from...")
+- **Trust:** Helps LLM assess confidence (personal notes vs external docs)
+
+**4. Document Type + Location Context**
+- **Rationale:** Same content type means different things based on where it lives
+- **Examples:**
+  - `"Memory from memory/2026-02-23.md"` → Personal reflection
+  - `"Decision from decisions/backup.md"` → Formal choice you made
+  - `"Project notes from projects/BingeWatching/"` → Active project context
+- **Benefit:** LLM adjusts tone and confidence based on document type
+
+**5. Heading Context (`Under '{heading}':`)**
+- **Rationale:** Preserves document structure that was lost during chunking
+- **Benefit:** LLM understands "this is from the Architecture section" not just random text
+- **Navigation:** Helps LLM locate full context if needed
+
+**6. Combined Summaries (Pre-computed + Dynamic Stats)**
+- **Pre-computed:** File-level summary captured during indexing (fast, holistic)
+- **Dynamic:** Stats extracted from matching chunks (specific, query-relevant)
+- **Example:** `BingeWatching project tracking | Relevant stats: 41 series tracked, 8.7 average rating`
+- **Benefit:** LLM gets both "what is this file about" and "why does it match this query"
+
+**7. Relevance Scores (`[relevance: 85%]`))**
+- **Rationale:** Gives the LLM confidence calibration
+- **Benefit:** Helps LLM weight information appropriately (90% = very likely relevant, 40% = possibly relevant)
+- **Prevents:** Over-confident responses based on weak matches
+
+### Formatting Impact on Response Quality
+
+| Field | Why It Matters | Impact |
+|-------|----------------|--------|
+| **XML boundaries** | Separates memory from conversation | Reduces hallucinations |
+| **Ranking** | Priority ordering | Most important context gets attention |
+| **Source paths** | Citation & provenance | Natural source attribution |
+| **Doc type** | Context interpretation | Appropriate tone/weight |
+| **Headings** | Structural context | Better understanding |
+| **Scores** | Confidence calibration | Appropriate certainty |
+
+### Example Injection
+
+```xml
+<retrieved_memory>
+
+I found 2 relevant memories for this conversation:
+
+[1] Most relevant: Memory from memory/2026-02-23.md
+   Source: /home/luis/.openclaw/workspace/memory/2026-02-23.md
+   About this file: Daily log of workspace activities | Relevant stats: 41 series tracked, 8.7 average rating
+   
+   Under 'BingeWatching Project':
+   Populated IMDb ratings for all 41 series and 40 movies. Updated weekly reports to include TMDB ratings in recommendations. 
+   [relevance: 92%]
+
+[2] Also relevant: Decision from decisions/backup.md
+   Source: /home/luis/.openclaw/workspace/decisions/backup.md
+   About this file: Repository backup strategy and data separation decisions
+   
+   Under 'Repository Mapping':
+   SmartSpud is the private workspace backup. fmem is now a separate public repository.
+   [relevance: 78%]
+
+</retrieved_memory>
+```
+
+**Result:** OpenClaw can naturally respond with *"Based on your notes from this morning, you mentioned tracking 41 series with an average rating of 8.7. You also decided to keep fmem as a separate public repository according to your backup strategy."*
+
+---
+
 ## 📝 Key Triggers
 
 **Automatic recall activates on:**
