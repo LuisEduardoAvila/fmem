@@ -27,7 +27,7 @@ New table-aware chunking eliminates LLM-based workarounds:
 - **Tables treated as atomic units** — No more mid-row splits
 - **Zero LLM calls** — Pure Python regex parsing
 - **20x faster indexing** — 1-2s vs 30s+ for table-heavy files
-- **Inspired by** [md2chunks](https://github.com/verloop/md2chunks), [advanced-chunking](https://github.com/joshuamckenty/advanced-chunking), [semantic-chunker](https://github.com/dorian-brown/semantic-chunker)
+- **Inspired by** [md2chunks](https://github.com/verloop/md2chunks), [advanced-chunker](https://github.com/rango-ramesh/advanced-chunker), [semantic-chunker](https://github.com/dorian-brown/semantic-chunker)
 
 See [docs/CHUNKING_STRATEGY.md](./docs/CHUNKING_STRATEGY.md) for full details.
 
@@ -700,7 +700,7 @@ Too high → Ollama timeouts. Too low → slow indexing. Start with 600 and incr
 
 **Hybrid chunking approach inspired by:**
 - **[verloop/md2chunks](https://github.com/verloop/md2chunks)** - Table-aware markdown splitting with atomic table handling
-- **[joshuamckenty/advanced-chunking](https://github.com/joshuamckenty/advanced-chunking)** - Semantic merging strategies for optimal chunk boundaries  
+- **[rango-ramesh/advanced-chunker](https://github.com/rango-ramesh/advanced-chunker)** - Semantic merging strategies for optimal chunk boundaries  
 - **[dorian-brown/semantic-chunker](https://github.com/dorian-brown/semantic-chunker)** - Embedding-based chunk optimization
 - **And 5 other open-source chunking projects** analyzed during development
 
