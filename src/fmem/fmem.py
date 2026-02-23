@@ -230,11 +230,8 @@ def chunk_content_adaptively(content: str, max_chunk_size: int = None,
         if chunk:
             chunks.append(chunk)
         
-        # Move start position forward, including overlap for continuity
+        # Move start position forward for next chunk
         start_pos = split_pos
-        if overlap_chars > 0 and start_pos + overlap_chars < content_len:
-            # Include overlap from previous chunk, but not past content start
-            start_pos = max(0, split_pos - overlap_chars)
     
     return chunks
 
@@ -374,22 +371,8 @@ def chunk_markdown(content: str, filepath: str, min_chunk_size: int = 50,
     else:
         effective_chunk_size = 5000
     
-    # Hybrid chunking: use md2chunks for table-heavy files
-    if MD2CHUNKS_AVAILABLE:
-        tables = extract_tables(content)
-        if tables:
-            logger.info(f"Using md2chunks for {filepath}: {len(tables)} tables detected")
-            # Convert md2chunks output to ChunkMetadata
-            raw_chunks = md2chunks_split(content, max_chars=effective_chunk_size, overlap=100)
-            for i, raw in enumerate(raw_chunks):
-                chunks.append(_create_chunk(
-                    filename=filename,
-                    heading=raw['context'] or raw['type'].title(),
-                    content=raw['text'],
-                    parent_file=filepath,
-                    chunk_index=i
-                ))
-            return chunks
+    # Note: md2chunks disabled - causes hangs during batch processing
+    # Table-heavy files will use standard heading-based chunking
     
     # Split content by ## headings
     parts = []
