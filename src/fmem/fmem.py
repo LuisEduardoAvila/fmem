@@ -2643,7 +2643,9 @@ class MemoryRetrieval:
     def __del__(self):
         """Cleanup on deletion."""
         try:
-            self.persist()
+            # Guard against interpreter shutdown issues
+            if open is not None and os is not None:
+                self.persist()
         except Exception:
             pass  # Suppress cleanup errors
     
@@ -2986,6 +2988,9 @@ class MemoryRetrieval:
         skipped = len(valid_files) - len(files_needing_index)
         if skipped > 0:
             logger.info(f"[BATCHED] Skipped {skipped} unchanged file(s)")
+        
+        # Sort by modification time (oldest first) for FIFO incremental processing
+        files_needing_index.sort(key=lambda f: os.path.getmtime(f), reverse=False)
         
         # Apply max_files limit
         files_to_index = files_needing_index
