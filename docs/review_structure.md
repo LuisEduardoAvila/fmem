@@ -79,8 +79,8 @@ The progression makes sense:
 
 **Current:**
 ```markdown
-- [Installation Guide](./docs/INSTALLATION.md)
-- [API Documentation](./docs/API.md)
+- [Installation Guide](./INSTALLATION.md)
+- [API Documentation](./API.md)
 ```
 
 **Problem:** These paths assume README is in `projects/fmem/`, but if viewed from root, paths break. Use relative from repo root:

@@ -135,7 +135,7 @@ Remaining (~40%):
 
 **Before:**
 ```markdown
-See [AGENTS.md](../AGENTS.md)
+See `AGENTS.md` (workspace file, not in fmem repo)
 ```
 
 **After:**

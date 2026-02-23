@@ -163,4 +163,4 @@ Real-world workflows demonstrating fmem's automatic memory recall.
 ## 🔗 Related
 
 - [README.md](./README.md) - Installation and usage, architecture, and triggers
-- [README.md#🤖 Enable Agent Integration](./README.md#-enable-agent-integration) - First-time setup
+- [README.md#current-implementation-agentsmd-integration](./README.md#current-implementation-agentsmd-integration) - First-time setup
