@@ -2850,30 +2850,44 @@ class MemoryRetrieval:
                     logger.warning(f"Skipping file outside base directory: {f}")
                     continue
         
-        # Optionally skip already indexed files
-        if skip_existing:
-            # Build set of already indexed filepaths for quick lookup
-            existing_files = set(doc['filepath'] for doc in self.doc_metadata)
-            # Filter to only new files
-            new_files = [f for f in valid_files if f not in existing_files]
-            skipped = len(valid_files) - len(new_files)
-            if skipped > 0:
-                logger.info(f"Skipped {skipped} already indexed file(s)")
-            valid_files = new_files
+        # Build lookup of existing files with metadata for mtime comparison
+        existing_files = {doc['filepath']: doc for doc in self.doc_metadata}
         
-        # Apply max_files limit if set
+        def file_needs_indexing(filepath):
+            """Check if file is new or modified (needs re-indexing)."""
+            abs_path = str(Path(filepath).resolve())
+            if abs_path not in existing_files:
+                return True  # New file
+            
+            # Check mtime - file changed if different from stored
+            try:
+                current_mtime = int(os.path.getmtime(filepath))
+                stored_mtime = existing_files[abs_path].get('last_modified', 0)
+                return current_mtime != stored_mtime
+            except OSError:
+                return True  # Error reading file, try to index
+        
+        # Filter to only files needing indexing BEFORE applying max_files
+        # This ensures unchanged files don't consume the quota
+        files_needing_index = [f for f in valid_files if file_needs_indexing(f)]
+        skipped = len(valid_files) - len(files_needing_index)
+        if skipped > 0:
+            logger.info(f"Skipped {skipped} unchanged file(s)")
+        
+        # Apply max_files limit to only files needing update
+        files_to_index = files_needing_index
         if max_files > 0:
-            if len(valid_files) > max_files:
-                logger.info(f"Limiting this run to {max_files} files (out of {len(valid_files)} found)")
-                valid_files = valid_files[:max_files]
+            if len(files_needing_index) > max_files:
+                logger.info(f"Limiting this run to {max_files} files (out of {len(files_needing_index)} needing update)")
+                files_to_index = files_needing_index[:max_files]
             else:
-                logger.info(f"Will index {len(valid_files)} files (limit: {max_files})")
+                logger.info(f"Will index {len(files_needing_index)} files (limit: {max_files})")
         
         # Index files
         success_count = 0
         failed_files = []
         
-        for filepath in valid_files:
+        for filepath in files_to_index:
             try:
                 abs_path = str(Path(filepath).resolve())
                 self.add_document(abs_path)
