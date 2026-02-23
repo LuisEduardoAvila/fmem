@@ -15,57 +15,34 @@ Real-world workflows demonstrating fmem's automatic memory recall.
 
 **Here's what actually happens:**
 
+```mermaid
+flowchart TB
+    A[You Send Message] --> B[OpenClaw Receives Message]
+    B --> C{should_search?\n"Remember my favorite movies..."}
+    C -->|Yes| D["✓ Triggers: 'remember' + 'movies'"]
+    D --> E["auto_recall(query, top_k=3)"]
+    E --> F{fmem Searches\nIndexed Memory}
+    F --> G["Returns: memory/2026-02-13.md"]
+    G --> H[Context Injection]
+    H --> I[OpenClaw Responds\nWith Context]
+    C -->|No| J[Normal Response]
+    
+    style D fill:#90EE90
+    style G fill:#FFD700
+    style I fill:#87CEEB
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│  STEP 1: You Send Message                                       │
-│  ━━━━━━━━━━━━━━━━━━━━━━━━━                                      │
-│  You → OpenClaw → "Remember my favorite movies. And suggest..." │
-└────────────────────────────────┬────────────────────────────────┘
-                                 │
-                                 ▼
-┌─────────────────────────────────────────────────────────────────┐
-│  STEP 2: I Receive Your Message                                 │
-│  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━                                 │
-│  What I see: "Remember my favorite movies. And suggest..."      │
-│  (Just your text. No movies listed yet.)                        │
-└────────────────────────────────┬────────────────────────────────┘
-                                 │
-                                 ▼
-┌─────────────────────────────────────────────────────────────────┐
-│  STEP 3: I Check AGENTS.md                                      │
-│  ━━━━━━━━━━━━━━━━━━━━━━━━━━                                     │
-│  I run: should_search("Remember my favorite movies...")         │
-│  Result: True ✓ ("remember" + "movies" triggers search)           │
-└────────────────────────────────┬────────────────────────────────┘
-                                 │
-                                 ▼
-┌─────────────────────────────────────────────────────────────────┐
-│  STEP 4: I CALL fmem to Search                                  │
-│  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━                                 │
-│  I execute: auto_recall("favorite movies suggest watch", top_k=3) │
-│                                                                 │
-│  fmem searches your indexed memory...                            │
-│  Returns: [2026-02-13.md#Movie Preferences]                       │
-│           "Movie/TV Preferences: Gladiator, Idiocracy..."        │
-└────────────────────────────────┬────────────────────────────────┘
-                                 │
-                                 ▼
-┌─────────────────────────────────────────────────────────────────┐
-│  STEP 5: I NOW Have Context                                     │
-│  ━━━━━━━━━━━━━━━━━━━━━━━━━                                      │
-│  My internal state:                                             │
-│  • User wants movie suggestions                                 │
-│  • I found: Past preferences include Gladiator, Idiocracy      │
-│  • I can now suggest similar movies                              │
-└────────────────────────────────┬────────────────────────────────┘
-                                 │
-                                 ▼
-┌─────────────────────────────────────────────────────────────────┐
-│  STEP 6: I Respond                                              │
-│  ━━━━━━━━━━━━━━━━━                                              │
-│  Based on the fmem results I just retrieved:                    │
-└─────────────────────────────────────────────────────────────────┘
-```
+
+**Step-by-Step:**
+
+| Step | Action | Details |
+|------|--------|---------|
+| 1 | You send message | 'Remember my favorite movies...' |
+| 2 | OpenClaw receives it | Just your text, no context yet |
+| 3 | Trigger check | `should_search()` detects 'remember' + 'movies' |
+| 4 | Search | `auto_recall()` queries fmem index |
+| 5 | Results | Returns matching chunks from memory files |
+| 6 | Context injection | `<retrieved_memory>` added to prompt |
+| 7 | Response | Generated with your actual preferences |
 
 **I respond:**
 > I recall from our earlier chat that your favorites include **Gladiator** and **Idiocracy**. Based on those, try:
@@ -91,10 +68,36 @@ Real-world workflows demonstrating fmem's automatic memory recall.
 
 **Stored:** `memory/2026-02-15.md` → ## Fitness Routine
 
-### Step 2: Check Schedule + Suggest
+```mermaid
+sequenceDiagram
+    participant U as User
+    participant O as OpenClaw
+    participant F as fmem
+    participant FS as File System
+    
+    U->>O: "Remember I want to work out..."
+    O->>O: Update memory/2026-02-15.md
+    O->>F: Trigger incremental index
+    F->>FS: Scan modified file
+    F->>F: Generate embeddings
+    F->>FS: Update FAISS index
+    Note over F: New fitness routine<br/>available for search
+```
+
+### Step 2: Check Schedule
 
 **Later you say:**
 > "What's my schedule this week?"
+
+```mermaid
+flowchart LR
+    A[Query: "schedule this week"] --> B{should_search?}
+    B -->|Yes| C[fmem.search]
+    C --> D[Find: ## Fitness Routine]
+    D --> E[Also check calendar]
+    E --> F[Combine context]
+    F --> G["Response: Thursday 6pm<br/>free for workout!"]
+```
 
 **I recall:**
 - Fitness goal: Workouts Mon/Thu at 6pm
@@ -121,6 +124,31 @@ Real-world workflows demonstrating fmem's automatic memory recall.
 **Later you say:**
 > "What should I work on?"
 
+```mermaid
+flowchart TB
+    subgraph Retrieval
+        A[Query: 'work on'] --> B[Trigger: projects]
+        B --> C[fmem.search]
+        C --> D[Match: ## Active Projects]
+        D --> E[Match: projects/fmem/ROADMAP.md]
+    end
+    
+    subgraph Context Building
+        E --> F[Get current phase]
+        F --> G[Phase 3: MCP Wrapper]
+        G --> H[Next: TypeScript setup]
+    end
+    
+    subgraph Response
+        H --> I[Inject context]
+        I --> J["Suggest: TypeScript<br/>server scaffolding"]
+    end
+    
+    style Retrieval fill:#E6F3FF
+    style Context fill:#FFF4E6
+    style Response fill:#E6FFE6
+```
+
 **I recall:**
 - Active project: MCP server for fmem
 - ROADMAP.md → Phase 3
@@ -128,6 +156,35 @@ Real-world workflows demonstrating fmem's automatic memory recall.
 
 **I respond:**
 > You're in **Phase 3** of the fmem MCP wrapper. Next step: TypeScript server scaffolding. Want help setting up the MCP protocol handlers?
+
+---
+
+## 🔄 How fmem Integrates with OpenClaw
+
+```mermaid
+sequenceDiagram
+    participant U as User
+    participant O as OpenClaw
+    participant F as fmem
+    
+    Note over U,O: Regular Conversation
+    
+    U->>O: Message with trigger word
+    O->>O: should_search(message)
+    
+    alt Trigger Detected
+        O->>F: auto_recall(query, top_k=3)
+        F->>F: Semantic search
+        F->>F: Multi-factor ranking
+        F->>F: Format results
+        F-->>O: <retrieved_memory>
+        O->>O: Build context with memory
+        O-->>U: Context-aware response
+    else No Trigger
+        O->>O: Process normally
+        O-->>U: Standard response
+    end
+```
 
 ---
 
