@@ -79,6 +79,35 @@
 - Preprocessed to ~500 chars before embedding (headings + summary)
 - Fits within 512 token limit
 
+### Hybrid Chunking Strategy (Table-Aware)
+
+**Decision:** Conditional use of md2chunks based on content type
+
+**Current Implementation:**
+```python
+if tables_found_in_content:
+    # Use md2chunks_splitter - preserves table structure
+    return md2chunks_split(content, ...)
+else:
+    # Use heading-based chunking - better section preservation
+    return heading_based_chunking(content, ...)
+```
+
+**Rationale (Verified 2026-02-23):**
+
+| Content Type | Method | Result | Quality |
+|-------------|--------|--------|---------|
+| **With tables** | md2chunks_split | Tables as atomic units, text around tables | ✅ Good - preserves table structure |
+| **Without tables** | md2chunks_split | All content → 1 chunk, NO heading context | ❌ Poor - loses section hierarchy |
+| **Without tables** | Heading-based | Content split by ## headings | ✅ Good - preserves sections |
+
+**Test Results:**
+- `extract_tables()` regex: ~0.04ms per file (negligible cost)
+- md2chunks without tables: Loses all ## heading context
+- Heading-based without tables: Preserves section structure
+
+**Conclusion:** Architecture is correct. Conditional routing provides optimal chunking for each content type. The 0.04ms regex scan is not a bottleneck.
+
 ### 3. Multi-Factor Ranking
 
 **Formula:**
