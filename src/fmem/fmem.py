@@ -1201,98 +1201,92 @@ class RateLimiter:
 # Ollama Connection with Retry Logic
 # ============================================================================
 
-class OllamaClient:
-    """Ollama client with connection pooling and retry logic."""
+class FastEmbedClient:
+    """FastEmbed client for local embeddings (no HTTP overhead)."""
     
-    def __init__(self, url: str = None, max_retries: int = 3, timeout: int = 30):
+    def __init__(self, model_name: str = "sentence-transformers/all-MiniLM-L6-v2", 
+                 max_retries: int = 3, timeout: int = 30):
         """
-        Initialize Ollama client.
+        Initialize FastEmbed client.
         
         Args:
-            url: Ollama base URL
-            max_retries: Maximum number of retry attempts
-            timeout: Request timeout in seconds
+            model_name: Hugging Face model name for embeddings
+            max_retries: Maximum number of retry attempts  
+            timeout: Request timeout in seconds (unused, for API compatibility)
         """
-        self.url = url or CONFIG.ollama_url
+        self.model_name = model_name
         self.max_retries = max_retries
         self.timeout = timeout
-        self._connection_pool = None
+        self._model = None
+        self._model_loaded = False
+        self.url = "local"  # For API compatibility
         
-        logger.debug(f"OllamaClient initialized with URL: {self.url}")
+        # Check fastembed is available
+        try:
+            from fastembed import TextEmbedding
+            self._TEXT_EMBEDDING = TextEmbedding
+        except ImportError:
+            raise ImportError("fastembed not installed. Run: pip install fastembed")
+        
+        logger.debug(f"FastEmbedClient initialized with model: {model_name}")
     
-    @contextmanager
-    def _get_connection(self):
-        """Get connection from pool with automatic retry."""
-        for attempt in range(self.max_retries):
-            try:
-                yield
-                return
-            except Exception as e:
-                if attempt < self.max_retries - 1:
-                    logger.warning(f"Connection attempt {attempt + 1} failed: {e}")
-                    import time
-                    time.sleep(2 ** attempt)  # Exponential backoff
-                else:
-                    raise
+    def _load_model(self) -> bool:
+        """Lazy load the embedding model."""
+        if self._model_loaded:
+            return True
+        
+        try:
+            logger.info("Loading FastEmbed model (first call)...")
+            self._model = self._TEXT_EMBEDDING(
+                model_name=self.model_name,
+                cache_dir=os.path.expanduser("~/.cache/fastembed")
+            )
+            self._model_loaded = True
+            logger.info(f"✓ FastEmbed model loaded: {self.model_name}")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to load FastEmbed model: {e}")
+            return False
     
     def health_check(self) -> bool:
-        """Check if Ollama service is available."""
-        try:
-            response = litellm.embedding(
-                model=f"ollama/{EMBEDDING_MODEL}",
-                input=["health check"],
-                api_base=self.url,
-                timeout=self.timeout
-            )
-            return response is not None
-        except Exception as e:
-            logger.error(f"Ollama health check failed: {e}")
-            return False
+        """Check if FastEmbed is available (model can load)."""
+        return self._load_model()
     
     def generate_embeddings(self, texts: List[str]) -> Optional[np.ndarray]:
         """
-        Generate embeddings with retry logic.
+        Generate embeddings using FastEmbed (local, no HTTP).
         
         Args:
             texts: List of strings to embed
             
         Returns:
-            Embeddings array (N x 768) or None if failed
+            Embeddings array (N x 384) or None if failed
         """
         if not texts:
             logger.warning("Empty text list provided for embedding")
             return None
         
+        if not self._load_model():
+            return None
+        
         for attempt in range(self.max_retries):
             try:
-                with self._get_connection():
-                    response = litellm.embedding(
-                        model=f"ollama/{EMBEDDING_MODEL}",
-                        input=texts,
-                        api_base=self.url,
-                        timeout=self.timeout
-                    )
-                    
-                    # Extract embeddings from response
-                    if hasattr(response, 'data'):
-                        embeddings_list = [item['embedding'] for item in response.data]
-                    elif isinstance(response, list):
-                        embeddings_list = response
-                    else:
-                        raise ValueError(f"Unexpected response type: {type(response)}")
-                    
-                    if not embeddings_list:
-                        logger.error("Empty embeddings list received")
-                        return None
-                    
-                    # Convert to numpy array
-                    return np.array(embeddings_list).astype('float32')
-                    
+                # FastEmbed returns a generator, convert to list
+                embeddings_gen = self._model.embed(texts)
+                embeddings_list = list(embeddings_gen)
+                
+                if not embeddings_list:
+                    logger.error("Empty embeddings list received")
+                    return None
+                
+                # Convert to numpy array
+                return np.array(embeddings_list).astype('float32')
+                
             except Exception as e:
                 logger.warning(f"Embedding generation attempt {attempt + 1}/{self.max_retries} failed: {e}")
                 if attempt < self.max_retries - 1:
                     import time
-                    time.sleep(2 ** attempt)  # Exponential backoff
+                    time.sleep(2 ** attempt)
         
         logger.error("All embedding generation attempts failed")
         return None
@@ -1329,7 +1323,7 @@ class MemoryRetrieval:
     - Comprehensive error handling
     """
     
-    def __init__(self, db_path: str = None, config: ConfigManager = None, ollama_client: OllamaClient = None):
+    def __init__(self, db_path: str = None, config: ConfigManager = None, embedding_client: FastEmbedClient = None):
         """
         Initialize memory search system.
         
@@ -1337,10 +1331,10 @@ class MemoryRetrieval:
             db_path: Optional SQLite path for persistent metadata.
                     If None, uses default from config.
             config: ConfigManager instance
-            ollama_client: OllamaClient instance
+            embedding_client: FastEmbedClient instance (optional)
         """
         self.config = config or CONFIG
-        self.ollama = ollama_client or OllamaClient()
+        self.ollama = embedding_client or FastEmbedClient()
         self.dimension = EMBEDDING_DIM
         self.index = None
         self.doc_metadata = []  # List of {filepath, content, last_modified}
@@ -3089,34 +3083,21 @@ class MemoryRetrieval:
             chunk.processed_content = processed
             texts.append(processed)
         
-        # Process embeddings in batches
+        # Process embeddings in batches using FastEmbed (local, no HTTP)
         all_embeddings = []
         embedding_errors = 0
         
-        for i in range(0, len(texts), batch_size):
-            batch_texts = texts[i:i + batch_size]
-            batch_chunks = all_chunks[i:i + batch_size]
-            
-            try:
-                import litellm
-                response = litellm.embedding(
-                    model=f"ollama/{EMBEDDING_MODEL}",
-                    input=batch_texts,
-                    api_base=self.ollama.url,
-                    timeout=60
-                )
-                
-                if hasattr(response, 'data'):
-                    batch_embeddings = [item['embedding'] for item in response.data]
-                    all_embeddings.extend(batch_embeddings)
-                else:
-                    logger.error(f"Unexpected response type: {type(response)}")
-                    embedding_errors += len(batch_texts)
-                    
-            except Exception as e:
-                logger.error(f"[BATCHED] Batch embedding failed at offset {i}: {e}")
-                embedding_errors += len(batch_texts)
-                # Continue with next batch - partial success is still useful
+        try:
+            # Use self.ollama (now FastEmbedClient) for batch generation
+            embeddings_array = self.ollama.generate_embeddings(texts)
+            if embeddings_array is not None:
+                all_embeddings = embeddings_array.tolist()
+            else:
+                embedding_errors = len(texts)
+                logger.error("[BATCHED] FastEmbed returned None")
+        except Exception as e:
+            logger.error(f"[BATCHED] FastEmbed batch embedding failed: {e}")
+            embedding_errors = len(texts)
         
         if not all_embeddings:
             logger.error("[BATCHED] All embedding batches failed, no files indexed")
