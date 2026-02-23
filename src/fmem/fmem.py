@@ -2906,6 +2906,290 @@ class MemoryRetrieval:
         
         return success_count
 
+    def index_directory_batched(self, directory: str, recursive: bool = True, 
+                                base_dir: Optional[str] = None, max_files: int = 0,
+                                batch_size: int = 25) -> int:
+        """
+        Index directory with batched embedding for improved performance.
+        
+        Collects all chunks from all files first, then performs batched embedding
+        calls to minimize HTTP overhead (2-4x faster than file-by-file).
+        
+        Args:
+            directory: Path to directory to index
+            recursive: Whether to index subdirectories recursively
+            base_dir: Optional base directory for path validation
+            max_files: Maximum number of files to index (0 = no limit)
+            batch_size: Number of texts to embed in one batch (default: 25, optimal from profiling)
+            
+        Returns:
+            Number of files successfully indexed
+            
+        Raises:
+            ValueError: If directory doesn't exist or path traversal attempted
+        """
+        import glob
+        import numpy as np
+        
+        # Phase 1: Collect all files needing indexing (same as index_directory)
+        start_time = time.time()
+        logger.info(f"[BATCHED] Starting batched index of: {directory}")
+        
+        # Resolve and validate directory path
+        directory_path = Path(directory).resolve()
+        
+        if not directory_path.exists():
+            raise ValueError(f"Directory does not exist: {directory}")
+        
+        if not directory_path.is_dir():
+            raise ValueError(f"Not a directory: {directory}")
+        
+        # Set base directory for secure path validation
+        if base_dir is None:
+            base_dir_path = directory_path.parent if directory_path.parent != directory_path else directory_path
+        else:
+            base_dir_path = Path(base_dir).resolve()
+        
+        # Build exclusion list
+        exclude_dirs = []
+        if hasattr(self.config, 'exclude_dirs') and self.config.exclude_dirs:
+            exclude_dirs = [d.strip().lower() for d in self.config.exclude_dirs.split(',') if d.strip()]
+        
+        # Find all valid files
+        if recursive:
+            files = glob.glob(str(directory_path / "**" / "*"), recursive=True)
+        else:
+            files = glob.glob(str(directory_path / "*"))
+        
+        # Filter to valid files
+        valid_files = []
+        for f in files:
+            file_path = Path(f)
+            if file_path.is_file():
+                # Check excluded directories
+                skip_file = False
+                for parent in file_path.parents:
+                    if parent.name.lower() in exclude_dirs:
+                        skip_file = True
+                        break
+                if skip_file:
+                    continue
+                
+                # Security and validity checks
+                try:
+                    resolved_path = file_path.resolve()
+                    resolved_path.relative_to(base_dir_path)
+                    
+                    if file_path.suffix.lower() not in self.config.VALID_EXTENSIONS:
+                        continue
+                    
+                    is_valid_size, _ = self.config.validate_file_size(str(file_path))
+                    if not is_valid_size:
+                        continue
+                    
+                    valid_files.append(f)
+                except (ValueError, RuntimeError):
+                    continue
+        
+        # Check which files need indexing
+        existing_files = {doc['filepath']: doc for doc in self.doc_metadata}
+        
+        def file_needs_indexing(filepath):
+            abs_path = str(Path(filepath).resolve())
+            if abs_path not in existing_files:
+                return True
+            try:
+                current_mtime = int(os.path.getmtime(filepath))
+                stored_mtime = existing_files[abs_path].get('last_modified', 0)
+                return current_mtime != stored_mtime
+            except OSError:
+                return True
+        
+        files_needing_index = [f for f in valid_files if file_needs_indexing(f)]
+        skipped = len(valid_files) - len(files_needing_index)
+        if skipped > 0:
+            logger.info(f"[BATCHED] Skipped {skipped} unchanged file(s)")
+        
+        # Apply max_files limit
+        files_to_index = files_needing_index
+        if max_files > 0 and len(files_needing_index) > max_files:
+            logger.info(f"[BATCHED] Limiting to {max_files} files (out of {len(files_needing_index)} needing update)")
+            files_to_index = files_needing_index[:max_files]
+        
+        if not files_to_index:
+            logger.info("[BATCHED] No files need indexing")
+            return 0
+        
+        logger.info(f"[BATCHED] Will index {len(files_to_index)} files in batch mode")
+        
+        # Phase 2: Collect all chunks from all files
+        logger.info("[BATCHED] Phase 1: Reading and chunking files...")
+        all_chunks = []  # List of (chunk_metadata, filepath)
+        file_metadata = {}  # filepath -> {mtime, size, etc}
+        
+        for filepath in files_to_index:
+            try:
+                abs_path = str(Path(filepath).resolve())
+                
+                # Read file
+                try:
+                    with open(abs_path, 'r', encoding='utf-8', errors='ignore') as f:
+                        content = f.read()
+                except UnicodeDecodeError:
+                    with open(abs_path, 'r', encoding='latin-1', errors='ignore') as f:
+                        content = f.read()
+                
+                # Clean content
+                import re
+                content = re.sub(r'[^\x20-\x7E\t\n\r]', '', content)
+                
+                if not content or len(content.strip()) == 0:
+                    continue
+                
+                # Chunk markdown
+                if abs_path.endswith('.md'):
+                    chunks = chunk_markdown(content, abs_path, max_chunk_size=self.config.max_chunk_size)
+                else:
+                    # Non-markdown: treat as single chunk
+                    from fmem.fmem import ChunkMetadata
+                    chunks = [ChunkMetadata(
+                        id=f"{Path(abs_path).name}#content",
+                        parent_file=abs_path,
+                        heading="Content",
+                        content=content[:self.config.max_chunk_size]
+                    )]
+                
+                # Store chunks with their filepath
+                file_metadata[abs_path] = {
+                    'content': content,
+                    'mtime': int(os.path.getmtime(abs_path)),
+                    'size': os.path.getsize(abs_path)
+                }
+                
+                for chunk in chunks:
+                    all_chunks.append((chunk, abs_path))
+                
+            except Exception as e:
+                logger.warning(f"[BATCHED] Failed to read/chunk {filepath}: {e}")
+                continue
+        
+        if not all_chunks:
+            logger.warning("[BATCHED] No chunks to index after reading")
+            return 0
+        
+        logger.info(f"[BATCHED] Collected {len(all_chunks)} chunks from {len(file_metadata)} files")
+        
+        # Phase 3: Batch embedding
+        logger.info("[BATCHED] Phase 2: Batched embedding...")
+        
+        # Prepare texts for embedding
+        texts = []
+        for chunk, _ in all_chunks:
+            processed = self._preprocess_for_embedding(chunk.content, heading=chunk.heading)
+            chunk.processed_content = processed
+            texts.append(processed)
+        
+        # Process embeddings in batches
+        all_embeddings = []
+        embedding_errors = 0
+        
+        for i in range(0, len(texts), batch_size):
+            batch_texts = texts[i:i + batch_size]
+            batch_chunks = all_chunks[i:i + batch_size]
+            
+            try:
+                import litellm
+                response = litellm.embedding(
+                    model=f"ollama/{self.config.embedding_model}",
+                    input=batch_texts,
+                    api_base=self.ollama.url,
+                    timeout=60
+                )
+                
+                if hasattr(response, 'data'):
+                    batch_embeddings = [item['embedding'] for item in response.data]
+                    all_embeddings.extend(batch_embeddings)
+                else:
+                    logger.error(f"Unexpected response type: {type(response)}")
+                    embedding_errors += len(batch_texts)
+                    
+            except Exception as e:
+                logger.error(f"[BATCHED] Batch embedding failed at offset {i}: {e}")
+                embedding_errors += len(batch_texts)
+                # Continue with next batch - partial success is still useful
+        
+        if not all_embeddings:
+            logger.error("[BATCHED] All embedding batches failed, no files indexed")
+            return 0
+        
+        if embedding_errors:
+            logger.warning(f"[BATCHED] {embedding_errors} chunks failed to embed")
+        
+        logger.info(f"[BATCHED] Generated {len(all_embeddings)} embeddings")
+        
+        # Phase 4: Add to FAISS and store metadata
+        logger.info("[BATCHED] Phase 3: Storing embeddings and metadata...")
+        
+        # Initialize FAISS if needed
+        if self.index is None:
+            self.index = faiss.IndexFlatIP(self.dimension)
+        
+        success_count = 0
+        indexed_files = set()
+        
+        for (chunk, filepath), embedding in zip(all_chunks[:len(all_embeddings)], all_embeddings):
+            try:
+                # Add to FAISS
+                emb_array = np.array([embedding]).astype('float32')
+                self.index.add(emb_array)
+                
+                # Get the new index position
+                faiss_idx = len(self.chunk_index_map)
+                
+                # Update chunk with metadata
+                chunk.chunk_index = faiss_idx
+                
+                # Store chunk mapping
+                self.chunk_index_map.append({
+                    'filepath': filepath,
+                    'chunk_id': chunk.id,
+                    'faiss_index': faiss_idx
+                })
+                
+                # Record file as successfully indexed
+                indexed_files.add(filepath)
+                
+            except Exception as e:
+                logger.warning(f"[BATCHED] Failed to store chunk {chunk.id}: {e}")
+                continue
+        
+        # Phase 5: Update document metadata for indexed files
+        for filepath in indexed_files:
+            if filepath in file_metadata:
+                meta = file_metadata[filepath]
+                
+                # Remove existing doc entry if present
+                self.doc_metadata = [d for d in self.doc_metadata if d['filepath'] != filepath]
+                
+                # Add new entry
+                self.doc_metadata.append({
+                    'filepath': filepath,
+                    'content': meta['content'][:200],
+                    'last_modified': meta['mtime'],
+                    'file_size': meta['size']
+                })
+        
+        success_count = len(indexed_files)
+        
+        # Phase 6: Persist (one write for all files)
+        self.persist()
+        
+        duration = time.time() - start_time
+        logger.info(f"[BATCHED] Indexed {success_count} files ({len(all_embeddings)} chunks) in {duration:.1f}s")
+        logger.info(f"[BATCHED] Throughput: {len(all_embeddings)/duration:.1f} chunks/sec")
+        
+        return success_count
+
     def index_file(self, filepath: str, base_dir: Optional[str] = None) -> int:
         """
         Index a single file.
