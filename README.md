@@ -10,31 +10,6 @@ License: MIT
 
 ---
 
-## What is fmem vs OpenClaw?
-
-**🤖 OpenClaw** is the AI assistant framework that manages conversations, implements agent logic, and provides the interface for interacting with you.
-
-**🧠 fmem** is a specialized memory system that OpenClaw uses to recall your previous conversations and context. It's like OpenClaw's "memory brain".
-
-### Relationship
-```
-You ↔ OpenClaw (AI Assistant) ↔ fmem (Memory System)
-```
-
-**OpenClaw does:**
-- Manages conversations and agent behavior
-- Makes decisions about when to use memory
-- Generates responses based on retrieved context
-- Provides CLI interface for standalone operations
-
-**fmem does:**
-- Stores and indexes your memory files (documents, notes, etc.)
-- Performs semantic search across your content
-- Provides auto_recall functionality for OpenClaw integration
-- Maintains FAISS indexes for fast similarity search
-
----
-
 ## Overview
 
 fmem is a privacy-first memory system that makes AI conversations feel natural and continuous. It remembers the precise context you need — not entire documents, not isolated keywords, but the *meaningful chunks* that matter.
@@ -88,6 +63,31 @@ pie title Multi-Factor Weighting
 ```
 
 **See Examples:** For detailed workflows and real-world usage, see [docs/EXAMPLES.md](./docs/EXAMPLES.md)
+
+---
+
+## What is fmem vs OpenClaw?
+
+**🤖 OpenClaw** is the AI assistant framework that manages conversations, implements agent logic, and provides the interface for interacting with you.
+
+**🧠 fmem** is a specialized memory system that OpenClaw uses to recall your previous conversations and context. It's like OpenClaw's "memory brain".
+
+### Relationship
+```
+You ↔ OpenClaw (AI Assistant) ↔ fmem (Memory System)
+```
+
+**OpenClaw does:**
+- Manages conversations and agent behavior
+- Makes decisions about when to use memory
+- Generates responses based on retrieved context
+- Provides CLI interface for standalone operations
+
+**fmem does:**
+- Stores and indexes your memory files (documents, notes, etc.)
+- Performs semantic search across your content
+- Provides auto_recall functionality for OpenClaw integration
+- Maintains FAISS indexes for fast similarity search
 
 ---
 
