@@ -3100,7 +3100,7 @@ class MemoryRetrieval:
             try:
                 import litellm
                 response = litellm.embedding(
-                    model=f"ollama/{self.config.embedding_model}",
+                    model=f"ollama/{EMBEDDING_MODEL}",
                     input=batch_texts,
                     api_base=self.ollama.url,
                     timeout=60
