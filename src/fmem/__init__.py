@@ -26,6 +26,9 @@ from .memory_retrieval import MemoryRetrieval
 # Legacy aliases for backward compatibility
 ConfigManager = ConfigService  # Legacy name
 
+# Chunking (unified table-aware and heading-based)
+from .chunking import chunk_markdown
+
 # Utility functions
 from .fmem import get_optimal_chunk_size, chunk_content_adaptively
 
@@ -50,6 +53,9 @@ __all__ = [
     
     # Legacy aliases
     "ConfigManager",
+    
+    # Chunking
+    "chunk_markdown",
     
     # Utility functions
     "get_optimal_chunk_size",

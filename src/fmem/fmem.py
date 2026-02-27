@@ -371,8 +371,8 @@ def chunk_markdown(content: str, filepath: str, min_chunk_size: int = 50,
     else:
         effective_chunk_size = 5000
     
-    # Note: md2chunks disabled - causes hangs during batch processing
-    # Table-heavy files will use standard heading-based chunking
+    # Note: md2chunks_splitter is now used via chunking.py module
+    # This function kept for backward compatibility and non-table content
     
     # Split content by ## headings
     parts = []
@@ -2187,7 +2187,7 @@ class MemoryRetrieval:
             
             # Determine whether to chunk or index as whole document
             if chunk_by_sections and filepath.endswith('.md'):
-                # Use standard chunking (will handle tables naturally via new md2chunks_splitter)
+                # Use unified chunking (heading-based, table-aware when present)
                 chunks = chunk_markdown(content, filepath, max_chunk_size=self.config.max_chunk_size)
                 logger.info(f"✓ Split {filepath} into {len(chunks)} chunks")
                 
