@@ -1,0 +1,6 @@
+---
+name: hybrid-search-fts5
+version: "1.0"
+status: proposed
+schema: openclaw.openspec.change.v1
+---
