@@ -22,7 +22,7 @@ from typing import Set, Dict
 logger = logging.getLogger(__name__)
 
 # Import from same package (src/)
-from .fmem import MemoryRetrieval
+from .memory_retrieval import MemoryRetrieval
 
 # Singleton memory instance
 _memory = None
