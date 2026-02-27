@@ -5,19 +5,37 @@ import argparse
 import sys
 from pathlib import Path
 
-from . import fmem
+from .memory_retrieval import MemoryRetrieval
+from .fmem import CONFIG
+
+
+def _get_files_in_directory(directory: Path, config, exclude_dirs: list) -> list:
+    """Recursively get all valid files in a directory."""
+    files = []
+    valid_extensions = {ext.lower() for ext in config.VALID_EXTENSIONS}
+    exclude_set = {d.lower() for d in exclude_dirs}
+    
+    for item in directory.rglob('*'):
+        if item.is_file():
+            # Check if this file is in an excluded directory
+            path_parts = [p.lower() for p in item.relative_to(directory).parts[:-1]]
+            if any(part in exclude_set for part in path_parts):
+                continue
+            if item.suffix.lower() in valid_extensions:
+                files.append(str(item))
+    
+    return files
 
 
 def cmd_index(args):
     """Index a directory of files."""
     try:
-        memory = fmem.MemoryRetrieval()
+        memory = MemoryRetrieval()
         
         if args.directory:
             # Single directory mode
             directory = Path(args.directory).resolve()
             
-            # SECURITY: Resolve and validate directory (prevents traversal)
             if not directory.exists():
                 print(f"Error: Directory '{directory}' does not exist", file=sys.stderr)
                 sys.exit(1)
@@ -25,64 +43,85 @@ def cmd_index(args):
             if directory.is_file():
                 # Single file mode
                 print(f"Indexing file {directory}...")
-                count = memory.index_file(str(directory))
-                print(f"✓ Indexed {count} chunks from {directory}")
+                success = memory.add_document(str(directory))
+                if success:
+                    memory.persist()
+                    print(f"✓ Indexed {directory}")
+                else:
+                    print(f"   ⏭️  Skipped (already indexed or error): {directory}")
             elif directory.is_dir():
-                # Directory mode  
-                # Use parent as base_dir for security validation, or directory if at root
-                base_dir = directory.parent if directory.parent != directory else directory
-                
+                # Directory mode
                 print(f"Indexing directory {directory}...")
-                count = memory.index_directory(str(directory), base_dir=str(base_dir))
-                print(f"✓ Indexed {count} files from {directory}")
+                files = _get_files_in_directory(directory, memory.config, [])
+                if not files:
+                    print(f"   ⚠️  No valid files found in {directory}")
+                    return
+                
+                results = memory.add_documents_batch(files, use_progress=False)
+                successful = sum(1 for v in results.values() if v)
+                memory.persist()
+                print(f"✓ Indexed {successful}/{len(files)} files from {directory}")
             else:
                 print(f"Error: '{directory}' is not a file or directory", file=sys.stderr)
                 sys.exit(1)
         else:
             # Auto-index mode from config
-            config = fmem.CONFIG
+            config = memory.config
             
             # Build list of directories to index
             directories = []
             
-            # Add additional directories from config
-            # Note: data_dir is for index storage only, not content indexing
             if hasattr(config, 'additional_dirs') and config.additional_dirs:
-                additional = [d.strip() for d in config.additional_dirs.split(',') if d.strip()]
-                directories.extend(additional)
-            
-            # Build exclusion list from config
-            exclude_dirs = []
-            if hasattr(config, 'exclude_dirs') and config.exclude_dirs:
-                exclude_dirs = [d.strip() for d in config.exclude_dirs.split(',') if d.strip()]
+                directories = [d.strip() for d in config.additional_dirs.split(',') if d.strip()]
             
             if not directories:
                 print("Error: No directories configured for indexing", file=sys.stderr)
                 print("Configure directories in fmem.conf:", file=sys.stderr)
-                print("  - Set additional_dirs (comma-separated list)", file=sys.stderr)
+                print("  additional_dirs = /path/to/memory, /path/to/notes", file=sys.stderr)
                 sys.exit(1)
+            
+            # Build exclusion list from config
+            exclude_dirs = []
+            if hasattr(config, 'exclude_dirs') and config.exclude_dirs:
+                exclude_dirs = [d.strip().lower() for d in config.exclude_dirs.split(',') if d.strip()]
+            
+            # Default exclusions
+            default_excludes = ['venv', 'env', '.venv', '.env', 'node_modules', '__pycache__', 
+                           '.git', '.pytest_cache', 'cache', 'dist', 'build', '.tox']
+            exclude_dirs.extend(default_excludes)
             
             print(f"Indexing {len(directories)} configured directories...")
             print(f"File types: {', '.join(config.VALID_EXTENSIONS)}")
             if exclude_dirs:
-                print(f"Excluding: {', '.join(exclude_dirs)}")
+                print(f"Excluding: {', '.join(exclude_dirs[:5])}{'...' if len(exclude_dirs) > 5 else ''}")
             
-            total_count = 0
+            total_files = 0
+            total_successful = 0
+            
             for directory in directories:
-                dir_path = Path(directory).resolve()
+                dir_path = Path(directory).expanduser().resolve()
                 if dir_path.exists() and dir_path.is_dir():
                     # Check if this directory should be excluded
-                    dir_name_lower = dir_path.name.lower()
-                    if dir_name_lower in [d.lower() for d in exclude_dirs]:
+                    if dir_path.name.lower() in exclude_dirs:
                         print(f"   ⏭️  Skipping excluded directory: {directory}")
                         continue
                     
                     print(f"\n📁 Indexing {directory}...")
-                    count = memory.index_directory(str(dir_path), base_dir=str(dir_path.parent))
-                    print(f"   ✓ Indexed {count} files")
-                    total_count += count
+                    files = _get_files_in_directory(dir_path, config, exclude_dirs)
+                    if not files:
+                        print(f"   ⚠️  No valid files found")
+                        continue
+                    
+                    results = memory.add_documents_batch(files, use_progress=False)
+                    successful = sum(1 for v in results.values() if v)
+                    total_files += len(files)
+                    total_successful += successful
+                    print(f"   ✓ Indexed {successful}/{len(files)} files")
                 else:
                     print(f"   ⚠️  Directory not found: {directory}")
+            
+            # Persist all changes
+            memory.persist()
             
             # Index specific files (e.g., project READMEs)
             if hasattr(config, 'index_files') and config.index_files:
@@ -90,33 +129,43 @@ def cmd_index(args):
                 if files:
                     print(f"\n📄 Indexing {len(files)} specific files...")
                     for filepath in files:
-                        file_path = Path(filepath).resolve()
+                        file_path = Path(filepath).expanduser().resolve()
                         if file_path.exists() and file_path.is_file():
-                            # Check extension
                             if file_path.suffix.lower() in config.VALID_EXTENSIONS:
                                 print(f"   Indexing {filepath}...")
-                                count = memory.index_file(str(file_path))
-                                print(f"   ✓ Indexed {count} chunks from {filepath}")
-                                total_count += count
+                                success = memory.add_document(str(file_path))
+                                if success:
+                                    total_successful += 1
+                                    print(f"   ✓ Indexed {filepath}")
+                                else:
+                                    print(f"   ⏭️  Skipped (already indexed): {filepath}")
                             else:
                                 print(f"   ⏭️  Skipping (not in allowed extensions): {filepath}")
                         else:
                             print(f"   ⚠️  File not found: {filepath}")
+                    memory.persist()
             
-            print(f"\n✅ Total indexed {total_count} files across all configured directories")
+            print(f"\n✅ Total indexed {total_successful}/{total_files} files across all directories")
+            
+            # Show stats
+            stats = memory.get_stats()
+            print(f"\nIndex stats: {stats['documents']['total_documents']} documents, "
+                  f"{stats['index_size']} chunks")
         
     except ValueError as e:
         print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)
     except Exception as e:
         print(f"Error: {e}", file=sys.stderr)
+        import traceback
+        traceback.print_exc()
         sys.exit(1)
 
 
 def cmd_search(args):
     """Search the memory index."""
     try:
-        memory = fmem.MemoryRetrieval()
+        memory = MemoryRetrieval()
         
         results = memory.search(args.query, top_k=args.top_k)
         
@@ -126,8 +175,9 @@ def cmd_search(args):
         
         for i, r in enumerate(results, 1):
             print(f"\n{i}. Score: {r['score']:.3f}")
-            print(f"   Source: {r.get('source', r.get('filepath', 'unknown'))}")
-            content = r.get('content', r.get('chunk', ''))
+            source = r.get('source', r.get('filepath', 'unknown'))
+            print(f"   Source: {source}")
+            content = r.get('content', r.get('chunk', r.get('summary', '')))
             preview = content[:200] + "..." if len(content) > 200 else content
             print(f"   {preview}")
             
@@ -139,15 +189,15 @@ def cmd_search(args):
 def cmd_status(args):
     """Show index status."""
     try:
-        memory = fmem.MemoryRetrieval()
+        memory = MemoryRetrieval()
         
-        doc_count = memory.get_document_count()
-        chunk_count = memory.get_chunk_count()
+        stats = memory.get_stats()
         
         print("fmem Index Status")
         print("=" * 40)
-        print(f"Documents indexed: {doc_count}")
-        print(f"Chunks indexed: {chunk_count}")
+        print(f"Documents indexed: {stats['documents']['total_documents']}")
+        print(f"Total chunks: {stats['index_size']}")
+        print(f"Embedding cache size: {stats['embedding_cache_size']}")
         
         # Show config info
         print("\nConfiguration:")
