@@ -1,0 +1,7 @@
+schema: openspec.change.v1
+name: qmd-inspiration-advanced-ranking
+created: "2026-02-27"
+status: proposed
+description: >
+  Implement QMD-inspired advanced ranking features: RRF fusion (Reciprocal Rank Fusion),
+  top-rank bonuses, and position-aware blending to improve search result quality.

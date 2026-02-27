@@ -1,0 +1,7 @@
+schema: openspec.change.v1
+name: mcp-server-implementation
+created: "2026-02-27"
+status: proposed
+description: >
+  Implement Model Context Protocol (MCP) server for fmem to enable universal
+  client support (Claude Desktop, VS Code, OpenClaw, etc.) via standardized protocol.

@@ -1,0 +1,7 @@
+schema: openspec.change.v1
+name: query-expansion-service
+created: "2026-02-27"
+status: proposed
+description: >
+  Implement LLM-based query expansion service that generates semantic variants
+  of user queries to improve recall for synonymous searches.
