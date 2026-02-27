@@ -98,9 +98,8 @@ projects/fmem/
 ├── src/                    # Core source code
 ├── docs/                   # Documentation
 ├── tests/                  # Test suite
-├── examples/               # Usage examples
 ├── config/                 # Configuration templates
-├── mcp-wrapper/           # MCP server implementation (future)
+├── mcp-wrapper/           # MCP server documentation (planned)
 └── README.md              # This file
 ```
 
@@ -139,10 +138,11 @@ graph TB
 
 | Component | Purpose | Location | Usage |
 |-----------|---------|----------|-------|
-| `MemoryRetrieval` | Core search class | `src/fmem/fmem.py` | Both CLI & OpenClaw Integration |
+| `MemoryRetrieval` | Core search class (composition root) | `src/fmem/memory_retrieval.py` | Both CLI & OpenClaw Integration |
 | `auto_recall()` | OpenClaw integration function | `src/fmem/fmem_integration.py` | Called by OpenClaw: `from fmem import auto_recall` |
 | `cli.py` | Command-line interface | `src/fmem/cli.py` | Standalone CLI: `fmem index`, `fmem search` |
-| `ConfigManager` | Configuration handling | `src/fmem/fmem.py` | Used by both CLI and OpenClaw |
+| `ConfigService` | Configuration handling | `src/fmem/config.py` | Used by both CLI and OpenClaw |
+| `chunking.py` | Hybrid chunking (table-aware + headings) | `src/fmem/chunking.py` | Used by DocumentManager |
 
 ---
 
@@ -429,7 +429,12 @@ Current status and future plans...
 
 ## Chunking Strategy
 
-**fmem v3.1.0+** uses fixed-size chunking based on the embedding model's token limits.
+**fmem v3.2.0** uses hybrid chunking with automatic table detection:
+- **Table-aware:** Tables treated as atomic units (never split mid-row)
+- **Heading-based:** Standard ## heading splits for non-table content
+- **Smart routing:** Auto-detects tables and uses appropriate strategy
+
+**v3.1.0** used fixed-size chunking (800 chars) based on embedding model token limits.
 
 ### The Constraint
 
@@ -585,11 +590,13 @@ Status: Option 1 complete (AGENTS.md), Option B deferred for evaluation
 
 ## Known Technical Debt
 
-1. **Monolithic Class:** `MemoryRetrieval` is 1,800+ lines - should be refactored into smaller classes
-2. **Global State:** `CONFIG` singleton makes testing difficult
-3. **No Async:** Synchronous only - blocks during embedding generation
-4. **Cache TTL:** 1 hour fixed - should be configurable
-5. **No Migration:** SQLite schema changes require manual migration
+1. **Global State:** `CONFIG` singleton makes testing difficult
+2. **No Async:** Synchronous only - blocks during embedding generation
+3. **Cache TTL:** 1 hour fixed - should be configurable
+4. **No Migration:** SQLite schema changes require manual migration
+
+**✅ Fixed in recent refactor:**
+- ~~Monolithic MemoryRetrieval class~~ - Refactored into specialized services (Phase 8, 2026-02-27)
 
 ---
 
