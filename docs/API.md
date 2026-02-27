@@ -8,15 +8,14 @@ Complete reference for the fmem Python API.
 
 Main class for memory search operations.
 
-### `__init__(db_path=None, config=None)`
+### `__init__(config=None)`
 
-Initialize memory retrieval system.
+Initialize memory retrieval system with dependency injection.
 
 **Parameters:**
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `db_path` | `str` | `None` | SQLite database path. Uses config default if None. |
-| `config` | `ConfigManager` | `None` | ConfigManager instance. Uses global CONFIG if None. |
+| `config` | `ConfigService` | `None` | ConfigService instance. Uses default config if None. |
 
 **Returns:**
 `MemoryRetrieval` instance
@@ -28,8 +27,11 @@ from fmem import MemoryRetrieval
 # Using default config
 memory = MemoryRetrieval()
 
-# With custom database path
-memory = MemoryRetrieval(db_path="/custom/path/memory.db")
+# With custom config
+from fmem import ConfigService
+config = ConfigService()
+config.data_dir = "/custom/path"
+memory = MemoryRetrieval(config=config)
 ```
 
 ---
@@ -65,6 +67,45 @@ for result in results:
 ```
 
 **Note:** Results are ranked using multi-factor scoring: semantic (50%), recency (30%), location (20%).
+
+---
+
+## Utility Functions
+
+### `save_memory_entry(content, date=None, append=True)`
+
+Save a memory entry to the daily file in workspace/memory/.
+
+**Parameters:**
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `content` | `str` | Required | Memory content to save |
+| `date` | `datetime` | `None` | Date for the memory file (defaults to today) |
+| `append` | `bool` | `True` | Whether to append or overwrite |
+
+**Example:**
+```python
+from fmem.memory_utils import save_memory_entry
+
+# Append to today's memory file
+save_memory_entry("## Meeting Notes\n- Discussed project timeline")
+
+# Write to specific date
+from datetime import datetime
+date = datetime(2026, 2, 27)
+save_memory_entry("## Retrospective", date=date)
+```
+
+---
+
+### `get_memory_file_path(date=None)`
+
+Get the path to the daily memory file.
+
+**Returns:**
+`Path` to the memory file (e.g., `~/.openclaw/workspace/memory/2026-02-27.md`)
+
+---
 
 ---
 
@@ -438,9 +479,11 @@ Create ChunkMetadata from dictionary.
 
 ---
 
-## ConfigManager Class
+## ConfigService Class
 
 Configuration management with environment variable support.
+
+**Note:** `ConfigManager` is an alias for `ConfigService` for backward compatibility.
 
 ### Key Settings
 
