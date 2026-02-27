@@ -30,6 +30,7 @@ from .database_service import DatabaseService
 from .result_enhancer import ResultEnhancer, EnhancerConfig
 from .file_summarizer import FileSummarizer
 from .document_manager import DocumentManager
+from .fmem import FastEmbedClient
 
 logger = logging.getLogger(__name__)
 
@@ -64,7 +65,8 @@ class MemoryRetrieval:
         self._config = config or ConfigService()
         
         # Phase 2: Embedding Service
-        self._embedding_service = EmbeddingService(self._config)
+        embedding_client = FastEmbedClient()
+        self._embedding_service = EmbeddingService(embedding_client, self._config)
         
         # Phase 3: Search Index
         self._search_index = SearchIndex(

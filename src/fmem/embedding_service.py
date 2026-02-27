@@ -408,6 +408,23 @@ class EmbeddingService:
         """Return the embedding cache for inspection."""
         return self._embedding_cache
     
+    def cache_size(self) -> int:
+        """Return the number of items in the cache."""
+        return len(self._embedding_cache)
+    
+    def health_check(self) -> bool:
+        """Check if embedding service is healthy."""
+        try:
+            # Check if client is available
+            if self._client is None:
+                return False
+            # Try to generate a test embedding
+            test_embedding = self._client.generate_embeddings(["test"])
+            return test_embedding is not None
+        except Exception as e:
+            logger.warning(f"Health check failed: {e}")
+            return False
+    
     @property
     def rate_limiter(self) -> RateLimiter:
         """Return the rate limiter for inspection."""

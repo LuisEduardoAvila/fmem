@@ -166,6 +166,66 @@ class SearchIndex:
         self._chunk_index_map = []
         logger.info("SearchIndex reset")
     
+    def remove_chunks_by_filepath(self, filepath: str) -> int:
+        """
+        Remove all chunks associated with a filepath from the FAISS index.
+        
+        Since FAISS doesn't support efficient individual deletion,
+        this rebuilds the index without the removed chunks.
+        
+        Args:
+            filepath: Path to the file whose chunks should be removed
+            
+        Returns:
+            Number of chunks removed
+        """
+        import faiss
+        
+        # Find indices to remove
+        indices_to_remove = []
+        for i, mapping in enumerate(self._chunk_index_map):
+            if mapping.get('filepath') == filepath:
+                indices_to_remove.append(i)
+        
+        if not indices_to_remove:
+            return 0
+        
+        # Get all embeddings and rebuild index without removed ones
+        removed_count = len(indices_to_remove)
+        logger.info(f"Removing {removed_count} chunks for {filepath}")
+        
+        # Create set for O(1) lookup
+        remove_set = set(indices_to_remove)
+        
+        # Rebuild chunk index map without removed entries
+        new_mapping = []
+        for i, mapping in enumerate(self._chunk_index_map):
+            if i not in remove_set:
+                new_mapping.append(mapping)
+        
+        # Rebuild FAISS index
+        if self.index.ntotal > 0:
+            # Get all embeddings from current index
+            all_embeddings = self.index.reconstruct_n(0, self.index.ntotal)
+            
+            # Filter out removed embeddings
+            keep_indices = [i for i in range(len(all_embeddings)) if i not in remove_set]
+            if keep_indices:
+                new_embeddings = all_embeddings[keep_indices]
+            else:
+                new_embeddings = np.empty((0, self.dimension), dtype=np.float32)
+            
+            # Reset and rebuild index
+            self.index.reset()
+            if len(new_embeddings) > 0:
+                self.index.add(new_embeddings)
+        
+        # Update mapping
+        self._chunk_index_map = new_mapping
+        
+        logger.info(f"Removed {removed_count} chunks, index now has {len(self._chunk_index_map)} entries")
+        return removed_count
+    
     def save(self, index_path: str = None, mapping_path: str = None) -> bool:
         """
         Save FAISS index and chunk mapping to disk.

@@ -4,10 +4,10 @@ fmem - FAISS-based Memory Search for OpenClaw
 A privacy-focused, zero-cost memory search system with chunk-level indexing
 for precise semantic retrieval using local FAISS embeddings via Ollama.
 
-Version 3.1.0 - Refactored with Dependency Injection
+Version 3.2.0 - Refactored with Dependency Injection
 """
 
-__version__ = "3.1.0"
+__version__ = "3.2.0"
 __author__ = "Luis Eduardo Avila"
 __email__ = "luis.eduardo.avila@gmail.com"
 

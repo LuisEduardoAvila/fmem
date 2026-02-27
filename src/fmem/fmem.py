@@ -116,7 +116,7 @@ class ChunkMetadata:
 
 
 # ============================================================================
-# Hardware Detection for Adaptive Chunking
+# Embedding Model Token Limits for Chunk Sizing
 # ============================================================================
 
 def get_optimal_chunk_size() -> int:
@@ -991,14 +991,14 @@ class _LRUCache:
 # Security Utilities
 # ============================================================================
 
-def sanitize_path(filepath: str, base_dir: Optional[str] = None, config: ConfigManager = None) -> Optional[str]:
+def sanitize_path(filepath: str, base_dir: Optional[str] = None, config = None) -> Optional[str]:
     """
     Sanitize and validate a file path to prevent path traversal attacks.
     
     Args:
         filepath: The file path to sanitize
         base_dir: Optional base directory to restrict paths to
-        config: ConfigManager instance (uses global CONFIG if None)
+        config: ConfigService or ConfigManager instance (uses global CONFIG if None)
         
     Returns:
         Sanitized absolute path or None if invalid
@@ -1054,14 +1054,14 @@ def sanitize_path(filepath: str, base_dir: Optional[str] = None, config: ConfigM
         return None
 
 
-def is_safe_symlink(filepath: str, allowed_dirs: List[str] = None, config: ConfigManager = None) -> Tuple[bool, str]:
+def is_safe_symlink(filepath: str, allowed_dirs: List[str] = None, config = None) -> Tuple[bool, str]:
     """
     Check if a symlink is safe to follow.
     
     Args:
         filepath: Path to check
         allowed_dirs: List of allowed base directories
-        config: ConfigManager instance
+        config: ConfigService or ConfigManager instance
         
     Returns:
         Tuple of (is_safe: bool, reason: str)

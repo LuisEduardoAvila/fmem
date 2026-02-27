@@ -87,7 +87,7 @@ class DocumentManager:
             Sanitized path or None if invalid
         """
         # Import here to avoid circular dependency
-        from .path_utils import sanitize_path, is_safe_symlink
+        from .fmem import sanitize_path, is_safe_symlink
         
         safe_path = sanitize_path(filepath, config=self._config)
         if safe_path is None:
@@ -398,12 +398,21 @@ class DocumentManager:
         
         return True
     
-    def _remove_existing_chunks(self, filepath: str) -> None:
-        """Remove existing chunks from mapping TODO: implement in SearchIndex."""
-        # This is a placeholder - SearchIndex needs chunk removal support
-        # For now, rely on SearchIndex.add to append new chunks
-        # Re-indexing will rebuild the FAISS index on save
-        logger.debug(f"Removing existing chunks for {filepath}")
+    def _remove_existing_chunks(self, filepath: str) -> int:
+        """Remove existing chunks from FAISS index for re-indexing."""
+        # Remove from SearchIndex (FAISS + mapping)
+        removed = self._search_index.remove_chunks_by_filepath(filepath)
+        
+        # Remove from database
+        if hasattr(self._db, 'delete_document'):
+            self._db.delete_document(filepath)
+        
+        # Remove from cache
+        self._doc_metadata_cache.pop(filepath, None)
+        self._doc_metadata = [d for d in self._doc_metadata if d.get('filepath') != filepath]
+        
+        logger.debug(f"Removed {removed} existing chunks for {filepath}")
+        return removed
     
     def add_documents_batch(
         self,
