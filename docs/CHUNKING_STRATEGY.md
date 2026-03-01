@@ -86,7 +86,6 @@ table_pattern = r'(?m)^\|[^\n]+\|\n\|[-:| ]+\|\n(?:\|[^\n]+\|\n?)+'
 | Metric | Before (LLM) | After (Hybrid) | Change |
 |--------|-------------|----------------|--------|
 | **LLM calls** | 6-8 per file | **0** | -6 to -8 |
-| **Indexing time** | 30s+ (API latency) | **1-2s** | ~20x faster |
 | **Table integrity** | Split mid-row | **Atomic** | Preserved |
 | **Cost** | Ollama requests | **Free** | $0 |
 | **Chunks (backup.md)** | 13 | **18** | +5 preserved |

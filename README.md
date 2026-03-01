@@ -18,7 +18,7 @@ fmem is a privacy-first memory system that makes AI conversations feel natural a
 
 **Core Innovation:** Chunk-level semantic indexing splits documents by structure (`##` headings) rather than arbitrary token boundaries. This delivers:
 - **Precise retrieval** — Gets the relevant section, not the whole file
-- **~57% token reduction** — Less noise, more signal in context windows
+- **Token-efficient retrieval** — Returns relevant chunks vs full files
 - **Natural conversation flow** — References that feel contextual, not robotic
 
 **v3.2.0 Update: Hybrid Chunking**
@@ -26,7 +26,7 @@ fmem is a privacy-first memory system that makes AI conversations feel natural a
 New table-aware chunking eliminates LLM-based workarounds:
 - **Tables treated as atomic units** — No more mid-row splits
 - **Zero LLM calls** — Pure Python regex parsing
-- **20x faster indexing** — 1-2s vs 30s+ for table-heavy files
+- **Faster indexing** — Python regex parsing vs previous LLM-based extraction
 - **Inspired by** [md2chunks](https://github.com/verloop/md2chunks), [advanced-chunker](https://github.com/rango-ramesh/advanced-chunker)
 
 See [docs/CHUNKING_STRATEGY.md](./docs/CHUNKING_STRATEGY.md) for full details.

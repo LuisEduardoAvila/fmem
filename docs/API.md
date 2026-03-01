@@ -519,9 +519,9 @@ logging.getLogger("fmem").setLevel(logging.DEBUG)
 ## Performance
 
 FastEmbed provides local ONNX-based embeddings with excellent performance characteristics:
-- **Per-text latency:** ~3ms (vs ~67ms with HTTP-based embeddings)
-- **Batch processing:** Up to 100+ texts per second
-- **No external dependencies:** Runs entirely locally
+- **Local inference:** No HTTP API calls, runs entirely on CPU
+- **Batch processing:** Efficient for multiple texts
+- **No external dependencies:** Self-contained, no API keys needed
 
 ---
 

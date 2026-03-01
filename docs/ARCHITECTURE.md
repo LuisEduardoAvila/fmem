@@ -28,7 +28,6 @@
 │  ┌────────────────────────────────────────────────────────────────────┐ │
 │  │                     FastEmbed (Local ONNX)                          │ │
 │  │         Model: sentence-transformers/all-MiniLM-L6-v2          │ │
-│  │         (384 dimensions, ~3ms per embedding)                      │ │
 │  └────────────────────────────────────────────────────────────────────┘ │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
@@ -320,7 +319,7 @@ flowchart LR
 
 ### Bottlenecks
 
-1. **Embedding Generation:** FastEmbed inference (~3ms per text)
+1. **Embedding Generation:** FastEmbed inference (local ONNX)
 2. **FAISS Search:** Index size > 100k vectors
 3. **File I/O:** Large files (>10MB)
 4. **SQLite:** Without proper indexing on `parent_file`
