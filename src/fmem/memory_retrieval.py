@@ -339,6 +339,15 @@ class MemoryRetrieval:
         """Access configuration."""
         return self._config
     
+    def get_document_count(self) -> int:
+        """
+        Get number of indexed documents.
+        
+        Returns:
+            Document count
+        """
+        return self._document_manager.doc_count
+    
     # =========================================================================
     # Cleanup
     # =========================================================================
