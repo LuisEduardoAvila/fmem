@@ -9,7 +9,7 @@ Version 3.2.0 - Refactored with Dependency Injection
 
 __version__ = "3.2.0"
 __author__ = "Luis Eduardo Avila"
-__email__ = "luis.eduardo.avila@gmail.com"
+__email__ = "luis.eduardo.avila@users.noreply.github.com"
 
 # Core imports (new refactored architecture)
 from .config import ConfigService, ConfigData
@@ -34,7 +34,6 @@ from .fmem import get_optimal_chunk_size, chunk_content_adaptively
 
 # Integration helpers
 from .fmem_integration import auto_recall, should_search, format_results
-from . import memory_utils
 
 __all__ = [
     # Core services (new architecture)
@@ -65,5 +64,4 @@ __all__ = [
     "auto_recall",
     "should_search",
     "format_results",
-    "memory_utils"
 ]

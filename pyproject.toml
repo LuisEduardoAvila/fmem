@@ -9,7 +9,7 @@ description = "FAISS-based Memory Search for OpenClaw - Privacy-focused semantic
 readme = "README.md"
 license = {text = "MIT"}
 authors = [
-    {name = "Luis Eduardo Avila", email = "luis.eduardo.avila@gmail.com"}
+    {name = "Luis Eduardo Avila", email = "luis.eduardo.avila@users.noreply.github.com"}
 ]
 requires-python = ">=3.9"
 dependencies = [

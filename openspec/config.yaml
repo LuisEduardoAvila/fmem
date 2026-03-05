@@ -1,0 +1,72 @@
+schema: spec-driven
+spec-gen:
+  version: 1.0.0
+  generatedAt: 2026-02-28T16:28:05.247Z
+  domains:
+    - memory
+    - storage
+    - ai-ml
+    - document-processing
+    - file-summarizer
+    - result-enhancer
+    - search-index
+  confidence: 0.85
+context: |-
+  # User-provided context (preserved)
+  # User-provided context (preserved)
+  # User-provided context (preserved)
+  # User-provided context (preserved)
+  # User-provided context (preserved)
+  # User-provided context (preserved)
+  # User-provided context (preserved)
+  # User-provided context (preserved)
+  # User-provided context (preserved)
+  # Auto-detected by spec-gen
+  Tech stack: python
+  Architecture: unknown
+  Domains: fmem, docs, mcp-wrapper, review, memory, backlog-md, config, tests, test-data
+
+  # Auto-detected by spec-gen
+  Tech stack: python
+  Architecture: unknown
+  Domains: fmem, docs, mcp-wrapper, review, memory, backlog-md, config, tests, test-data
+
+  # Auto-detected by spec-gen
+  Tech stack: python
+  Architecture: unknown
+  Domains: fmem, docs, mcp-wrapper, review, memory, backlog-md, config, tests, test-data
+
+  # Auto-detected by spec-gen
+  Tech stack: python
+  Architecture: unknown
+  Domains: fmem, docs, mcp-wrapper, review, memory, backlog-md, config, tests, test-data
+
+  # Auto-detected by spec-gen
+  Tech stack: python
+  Architecture: unknown
+  Domains: fmem, docs, mcp-wrapper, review, memory, backlog-md, config, tests, test-data
+
+  # Auto-detected by spec-gen
+  Tech stack: python
+  Architecture: unknown
+  Domains: fmem, docs, mcp-wrapper, review, memory, backlog-md, config, tests, test-data
+
+  # Auto-detected by spec-gen
+  Tech stack: python
+  Architecture: unknown
+  Domains: fmem, docs, mcp-wrapper, review, memory, backlog-md, config, tests, test-data
+
+  # Auto-detected by spec-gen
+  Tech stack: python
+  Architecture: unknown
+  Domains: fmem, docs, mcp-wrapper, review, memory, backlog-md, config, tests, test-data
+
+  # Auto-detected by spec-gen
+  Tech stack: python
+  Architecture: Layered (routes → controllers → services → repositories)
+  Domains: memory, file, embedding, retrieval, config
+
+  # Auto-detected by spec-gen
+  Tech stack: python
+  Architecture: Layered (routes → controllers → services → repositories)
+  Domains: memory, document, embedding, retrieval, config

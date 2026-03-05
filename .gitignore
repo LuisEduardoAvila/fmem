@@ -38,3 +38,6 @@ env/
 *.jsonl
 memory/
 ~/
+
+# spec-gen analysis artifacts
+.spec-gen/
