@@ -3,16 +3,29 @@
 **Contextual Memory for Natural Conversations**
 
 Version: 3.2.0  
-Status: Production Ready ✅  
+Status: v1 Stable  
 License: MIT
 
 **Latest:** Hybrid chunking with table-aware splitting (v3.2.0, Feb 2026)
 
 ---
 
+## Contents
+
+- [Overview](#overview)
+- [Quick Start](#quick-start)
+- [What is fmem vs OpenClaw?](#what-is-fmem-vs-openclaw)
+- [Architecture](#-how-fmem-works)
+- [CLI Usage](#cli-usage)
+- [Configuration](#configuration)
+- [Integration Options](#integration-options)
+- [Changelog](#changelog)
+
+---
+
 ## Overview
 
-fmem is a privacy-first memory system that makes AI conversations feel natural and continuous. It remembers the precise context you need — not entire documents, not isolated keywords, but the *meaningful chunks* that matter.
+fmem is a local-first memory system that makes AI conversations feel natural and continuous. It remembers the precise context you need — not entire documents, not isolated keywords, but the *meaningful chunks* that matter.
 
 > 🧠 **Memory that understands structure, not just text.**
 
@@ -63,6 +76,37 @@ pie title Multi-Factor Weighting
 ```
 
 **See Examples:** For detailed workflows and real-world usage, see [docs/EXAMPLES.md](./docs/EXAMPLES.md)
+
+---
+
+## Quick Start
+
+**Prerequisites:** Python 3.9+, pip
+
+**Install:**
+```bash
+pip install fmem
+```
+
+**Verify:**
+```bash
+fmem status
+```
+
+**Minimal config** (create `~/.openclaw/memory/fmem.conf`):
+```ini
+data_dir = ~/.openclaw/memory/
+```
+
+**Index documents:**
+```bash
+fmem index
+```
+
+**Search:**
+```bash
+fmem search "your query"
+```
 
 ---
 
@@ -376,7 +420,7 @@ Memory search vs fmem analysis complete...
 ```markdown
 ## Technical Decisions
 - Switched to 3-hour cron schedule
-- Added rate limiting for Ollama API
+- Added rate limiting for embedding API
 
 ## Project Roadmap  
 - Phase 1: Core stability ✅
@@ -438,11 +482,11 @@ Current status and future plans...
 
 ### The Constraint
 
-Uses `all-minilm:22m` which has:
-- **Context length:** 512 tokens
+Uses `all-minilm:22m` (all-MiniLM-L6-v2 via FastEmbed) which has:
+- **Context length:** 256 tokens (default), up to 512 tokens (configurable)
 - **Embedding length:** 384 dimensions
 
-In practice: **~800 characters** fits safely within 512 tokens.
+In practice: **~800 characters** fits safely within 256 tokens (typical English: ~3-4 chars/token).
 
 Hardware RAM doesn't constrain chunking - the embedding model does.
 
@@ -461,7 +505,7 @@ Each split includes **overlap** (100 characters) to preserve semantic continuity
 
 | Setting | Value | Reason |
 |---------|-------|--------|
-| Chunk size | **800 chars** | Fits in 512 token limit |
+| Chunk size | **800 chars** | Fits in 256 token limit with margin |
 | Overlap | **100 chars** | Semantic continuity |
 | Preprocessing | **~500 chars** | Headings + summary for embedding |
 
@@ -475,7 +519,7 @@ chunk.content  # Full text (up to 800 chars)
 
 # Preprocessed for embedding
 processed = headings + summary  # ~500 chars
-embedding = model.encode(processed)  # Fits in 512 tokens
+embedding = model.encode(processed)  # Fits in 256 tokens
 ```
 
 **Search queries the full semantic representation while respecting model limits.**
@@ -550,6 +594,30 @@ Agent: (detects triggers → auto_recall() → responds with context)
 - Multi-client compatibility
 
 **Documentation:** See `mcp-wrapper/RATIONALE.md` and `IMPLEMENTATION.md`
+
+---
+
+## Alternatives
+
+fmem exists in a landscape of memory systems. Here's how it compares:
+
+| System | Type | Key Difference from fmem |
+|--------|------|---------------------------|
+| **[MemGPT](https://github.com/cpacker/memgpt)** | Agent memory | Full agent framework with memory; fmem is memory-only |
+| **[Mem0](https://mem0.ai)** | Managed memory | Cloud-hosted, requires API; fmem is local-first |
+| **[Letta](https://letta.com)** | Agent platform | Agent orchestration; fmem is integration-only |
+| **[LangChain Memory](https://python.langchain.com/docs/modules/memory/)** | Framework memory | Part of LangChain; fmem is standalone |
+
+**When to choose fmem:**
+- You want local-first, privacy-preserving memory
+- You need chunk-level retrieval (not full documents or keywords)
+- You're using OpenClaw or want a standalone CLI
+- You control your embedding model and data
+
+**When to choose alternatives:**
+- You need managed cloud infrastructure → Mem0
+- You want full agent orchestration → MemGPT/Letta
+- You're already using LangChain → LangChain Memory
 
 ---
 
