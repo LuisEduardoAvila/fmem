@@ -3,7 +3,7 @@
 FAISS-based Memory Search System - Production Hardened
 
 Provides offline-first semantic search for agent memory using FAISS embeddings.
-Zero external dependencies — works via litellm → Ollama (no OpenAI API).
+Zero external dependencies — works via FastEmbed (local embeddings, no HTTP).
 
 Security Features:
 - Path traversal protection
@@ -123,7 +123,7 @@ def get_optimal_chunk_size() -> int:
     """
     Return optimal chunk size based on embedding model token limits.
     
-    Uses all-minilm:22m which has:
+    Uses FastEmbed with all-MiniLM-L6-v2 which has:
     - context length: 512 tokens (~200-800 chars depending on text)
     - embedding length: 384 dimensions
     
@@ -136,7 +136,7 @@ def get_optimal_chunk_size() -> int:
     Returns:
         Optimal chunk size in characters (800)
     """
-    # Fixed at 800 chars - based on all-minilm:22m's 512 token context limit
+    # Fixed at 800 chars - based on all-MiniLM-L6-v2's 512 token context limit
     # Not adaptive by design - the embedding model constrains us, not RAM
     return 800
 
@@ -146,7 +146,7 @@ def chunk_content_adaptively(content: str, max_chunk_size: int = None,
     """
     Split large content into chunks based on embedding model token limits.
 
-    Default chunk size is 800 chars (fits in all-minilm:22m's 512 token limit).
+    Default chunk size is 800 chars (fits in all-MiniLM-L6-v2's 512 token limit).
     Uses smart boundary detection to split at semantic breaks:
     1. Section boundaries (## headings)
     2. Paragraph boundaries (blank lines)
@@ -362,16 +362,9 @@ import faiss
 import numpy as np
 import sqlite3
 
-# Try to import litellm and use all-minilm:22m model (served by local Ollama)
-# Switched from nomic-embed-text (137M) to all-minilm:22m (22M) for Pi5 compatibility
-try:
-    import litellm
-    EMBEDDING_MODEL = "all-minilm:22m"
-    EMBEDDING_DIM = 384
-except ImportError:
-    raise ImportError(
-        "litellm not installed. Run: pip install --break-system-packages litellm"
-    )
+# Embedding model configuration (FastEmbed local, no external dependencies)
+EMBEDDING_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
+EMBEDDING_DIM = 384
 
 # Import md2chunks splitter (new hybrid chunking for tables)
 try:
@@ -1111,23 +1104,8 @@ class FastEmbedClient:
         
         logger.error("All embedding generation attempts failed")
         return None
-    
-    def get_model_list(self) -> List[str]:
-        """Get list of available models from Ollama."""
-        try:
-            response = litellm.models(api_base=self.url, timeout=self.timeout)
-            if isinstance(response, list):
-                return [m['id'] for m in response]
-            elif hasattr(response, 'data'):
-                return [m['id'] for m in response.data]
-            return []
-        except Exception as e:
-            logger.error(f"Failed to get model list: {e}")
-            return []
 
 
-# ============================================================================
-# CLI Interface
 # ============================================================================
 # CLI Interface
 # ============================================================================
