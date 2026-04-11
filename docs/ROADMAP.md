@@ -39,6 +39,18 @@
 - fmem already has FAISS (zero API calls) and trigger detection (`should_search()`)
 - Just needs wiring into `before_prompt_build` hook
 
+### Positioning
+**Low-cost alternative to Active Memory** for resource-constrained environments:
+
+| | Active Memory | fmem Plugin |
+|---|---|---|
+| Trigger | Every prompt | Pattern-matched only |
+| Embedding | API call per prompt (OpenRouter/OpenAI) | Local FAISS (zero API calls) |
+| Latency | ~200-500ms per prompt | ~50ms only when triggered |
+| Scope | memory-core (MEMORY.md + memory/) | memory/ + notes/ + projects/ + custom |
+| Pi-friendly | ❌ (API calls + latency) | ✅ (local search, zero network) |
+| Ideal for | Cloud deployments, unlimited budget | Self-hosted, Pi, privacy-first |
+
 ### Design Principles
 - **Trigger-based, not blanket** — only inject when content matches patterns
 - **Zero API calls** — FAISS search on pre-computed local vectors
