@@ -1,0 +1,5 @@
+schema: openspec.v1
+change: multi-language-triggers
+created: 2026-03-11
+status: proposed
+description: Multi-language trigger detection for fmem auto-recall

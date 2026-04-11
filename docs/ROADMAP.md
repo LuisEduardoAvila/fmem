@@ -1,319 +1,109 @@
 # fmem Development Roadmap
 
-**Version:** 3.0.0  
-**Last Updated:** 2026-02-15  
-**Status:** Phase 1 Complete, Phase 2 Active  
-
-**Decision Philosophy:** Document for awareness, prioritize based on value/effort, revisit quarterly
+**Version:** 3.2.0  
+**Last Updated:** 2026-04-11  
+**Status:** Production-stable, plugin phase next
 
 ---
 
-## Phase 1: Core Stability ✅ COMPLETE
+## Completed Phases
 
-**Timeline:** 2026-02-12 to 2026-02-15  
-**Goal:** Production-ready memory search system
+### Phase 1: Core Stability ✅ (2026-02-12 → 02-15)
+- FAISS integration with semantic search
+- Chunk-level markdown indexing
+- Multi-factor ranking (semantic + recency + location)
+- SQLite persistence, Ollama embeddings, CLI interface
 
-### Deliverables
-- [x] FAISS integration with semantic search
-- [x] Chunk-level markdown indexing
-- [x] Multi-factor ranking (semantic + recency + location)
-- [x] SQLite persistence for metadata
-- [x] Ollama embedding integration
-- [x] CLI interface
-- [x] OpenClaw integration module
-- [x] Security hardening (path validation, input sanitization)
-- [x] Comprehensive documentation
-- [x] Test suite (chunking, recency, location)
+### Phase 2: Enhanced Features ✅ (2026-02-15 → 03-01)
+- AGENTS.md integration with trigger patterns
+- Security hardening (4/10 → 8/10)
+- Documentation (API, architecture, installation, examples)
+- Code refactoring (3,130 → 1,286 lines in fmem.py, 9 service modules)
 
-### Achievements
-- ✅ Zero external API costs (100% local)
-- ✅ Privacy-focused (no data leaves machine)
-- ✅ Token-efficient retrieval with chunk-level indexing
-- ✅ Production security review passed
+### Phase 3: Production Hardening ✅ (2026-03 → 04)
+- Incremental indexing via cron (every 3h)
+- Heading-aware chunking (## sections)
+- Broad scope: memory/ + notes/ + projects/ + trips/ + custom dirs
+- N+1 query fix (batch operations)
+- 17 tests covering core functionality
 
 ---
 
-## Phase 2: Enhanced Features ✅ IN PROGRESS
+## Current Phase: OpenClaw Plugin
 
-**Timeline:** 2026-02-15 to 2026-02-28  
-**Goal:** Improved developer experience and robustness  
-**Status:** Option 1 ✅ Done, Option B 🔄 Planned
+**Goal:** Make fmem an OpenClaw plugin with trigger-based auto-injection.
 
-**Completed (~60%):**
-- ✅ AGENTS.md Integration (Option 1) - Working
-- ✅ Security Hardening (4/10 → 8/10)
-- ✅ Documentation (API.md, INSTALLATION.md, ARCHITECTURE.md)
+### Why
+- Current setup requires me (the agent) to explicitly call `memory_search`
+- `memory-auto-recall` plugin does blanket injection on every prompt — wasteful on Pi
+- fmem already has FAISS (zero API calls) and trigger detection (`should_search()`)
+- Just needs wiring into `before_prompt_build` hook
 
-**Remaining (~40%):**
-- 🔄 Automatic Hook (Option B) - Decision 2026-03-01
-- 📋 Async API support
-- 📋 Incremental re-indexing (file watching)
+### Design Principles
+- **Trigger-based, not blanket** — only inject when content matches patterns
+- **Zero API calls** — FAISS search on pre-computed local vectors
+- **Broader scope than memory-core** — notes/, projects/, custom dirs
+- **Portable** — plugin wraps fmem core, doesn't replace it
 
-**Status:** ✅ **IMPLEMENTED** - Working in Production
-
-**Completed:**
-- [x] Memory Recall section in AGENTS.md
-- [x] Trigger patterns documented
-- [x] Tested: "What were my fitness goals?" works
-- [x] EXAMPLES.md with conversational flows
-
----
-
-### 2.2 Security Hardening ✅ COMPLETE
-
-**Status:** ✅ **COMPLETE** - Score: 4/10 → 8/10
-
-**Completed:**
-- [x] SQL injection prevention
-- [x] Symlink protection
-- [x] Rate limiting
-- [x] Content validation
-- [x] Database indexing
-- [x] Memory pressure handling
+### Tasks
+- [ ] Create `openclaw-fmem-plugin` package scaffold
+- [ ] Implement `before_prompt_build` hook
+- [ ] Wire `should_search()` trigger detection into hook
+- [ ] Wire FAISS search into hook (reuse existing index)
+- [ ] Format and inject results into prompt context
+- [ ] Config: maxResults, minScore, minPromptLength, triggerPatterns
+- [ ] Test on Pi (latency, accuracy, trigger hit rate)
+- [ ] Publish to clawhub.ai
 
 ---
 
-### 2.3 Documentation ✅ COMPLETE
+## Dropped Items
 
-**Status:** ✅ **COMPLETE**
+These were in the previous roadmap. Dropped because:
 
-**Completed:**
-- [x] EXAMPLES.md with workflow demonstrations
-- [x] AGENTS.md integration guide
-- [x] Installation gaps filled
-- [x] Troubleshooting sections
-- [x] First-time user checklist
-
----
-
-### 2.4 Automatic Hook (Option B) 🔄 DEFERRED
-
-**Status:** 🔄 **DEFERRED** - Decision after 2 weeks usage data
-
-**Why Deferred:**
-- Option 1 (AGENTS.md) working well
-- Need usage data to justify effort
-- Token budget complexity not worth it yet
-
-**Decision Point:** 2026-03-01 (2 weeks of Option 1 usage)  
-**Estimated:** 4-6 hours  
-**Current Priority:** Low (wait for data)
+| Item | Why Dropped |
+|------|-------------|
+| MCP Server | memory-core now has MCP-like search; plugin approach is better |
+| Async API | fmem isn't a web service; cron + CLI is fine |
+| Reranking (cross-encoder) | Overhead on Pi not worth it |
+| BM25 Hybrid Search | memory-core does hybrid search now |
+| Self-hosted embeddings | Ollama works fine, no need to replace |
+| Query Expansion Service | LLM call per query on Pi = bad idea |
+| Multi-language triggers | Nice-to-have, spaCy overhead on Pi |
+| Proactive injection spec | Superseded by this plugin design |
 
 ---
 
-## Phase 3: MCP Wrapper (Universal Support) 📋 PRIORITY: HIGH
+## Architecture
 
-**Timeline:** 2026-03-01 to 2026-03-15  
-**Goal:** Universal client compatibility (Claude Desktop, Cursor, etc.)  
-**Priority:** **HIGH** - Unlocks non-OpenClaw users
+```
+User message
+    ↓
+OpenClaw before_prompt_build hook
+    ↓
+fmem plugin: should_search(message)?
+    ↓ yes
+FAISS search (local, pre-computed, sub-ms)
+    ↓
+Format results → inject into prompt
+    ↓
+Agent sees enriched prompt
+```
 
-### Why High Priority?
-- Large addressable market (Claude Desktop, VS Code, Cursor)
-- Industry standard protocol (MCP)
-- Clear value proposition
-- Reasonable effort estimate (2 weeks)
+vs current:
 
-### 3.1 MCP Server Core
-**Estimated:** 40 hours  
-**Priority:** Critical path
-
-**Tasks:**
-- [ ] Set up TypeScript project
-- [ ] Implement MCP server with SDK
-- [ ] Create `search_memory`, `add_document`, `get_status` tools
-- [ ] Create Python bridge subprocess
-- [ ] Implement JSON-RPC protocol
-
-### 3.2 Multi-Client Support
-**Estimated:** 15 hours  
-**Priority:** High
-
-**Tasks:**
-- [ ] Test with Claude Desktop
-- [ ] Test with VS Code (Cline)
-- [ ] Test with Cursor
-- [ ] Document client-specific config
-
-### 3.3 MCP Testing & Release
-**Estimated:** 25 hours  
-**Priority:** Medium
-
-**Tasks:**
-- [ ] Unit tests
-- [ ] Performance benchmarks
-- [ ] Beta release
-- [ ] Documentation
-
-**Total Phase 3:** ~80 hours (2 weeks)  
-**Dependencies:** None (Phase 2 stable enough)
+```
+User message
+    ↓
+Agent decides to call memory_search
+    ↓
+fmem CLI or Python API
+    ↓
+Agent reads results
+```
 
 ---
 
-## Phase 4: Advanced Features - PRIORITIZED
+## Review Cadence
 
-**Philosophy:** Value/Effort ratio. Document everything, prioritize quarterly.
-
-**Review Date:** 2026-03-15 (after MCP Phase 3)
-
-### Priority Ranking
-
-| Rank | Feature | Value | Effort | Priority | Decision |
-|------|---------|-------|--------|----------|----------|
-| 1 | **Async API** | High | Low | 🔴 **HIGH** | Do first - improves performance |
-| 2 | **Reranking** | Medium | Medium | 🟡 **MEDIUM** | Under investigation |
-| 3 | **BM25 Hybrid** | Medium | Medium | 🟢 **LOW** | QMD provides this |
-| 4 | **Self-hosted** | Low | High | 🟢 **LOW** | Ollama works fine |
-
----
-
-### 4.1 Async API 🔴 HIGH PRIORITY
-
-**Status:** 📋 **PLANNED**  
-**Estimated:** 4-6 hours  
-**Value:** Improves performance, modern Python patterns
-
-**Tasks:**
-- [ ] Async `search()` method
-- [ ] Async `add_document()` method
-- [ ] Non-blocking embeddings
-- [ ] Concurrent request handling
-
-**Why High:** Low effort, high value, standard Python practice
-
----
-
-### 4.2 Reranking 🟡 MEDIUM PRIORITY - UNDER INVESTIGATION
-
-**Status:** 🔄 **INVESTIGATING**  
-**Estimated:** 8-12 hours  
-**Value:** Better result ordering
-
-**Research Questions:**
-- Which cross-encoder model? (ms-marco-MiniLM-L-6-v2?)
-- Overhead acceptable? (latency increase?)
-- Better than current multi-factor ranking?
-
-**Decision:** Review after testing by 2026-03-15  
-**If promising:** Move to Phase 4.5  
-**If not:** Document and park
-
----
-
-### 4.3 BM25 Hybrid Search 🟢 LOW PRIORITY
-
-**Status:** 📋 **DOCUMENTED** - Not scheduled  
-**Estimated:** 6-8 hours  
-**Value:** Exact keyword matches
-
-**Why Low:**
-- Current semantic search adequate
-- QMD provides hybrid if user needs it
-- Would require re-indexing
-
-**Trigger for Re-evaluation:**
-- Multiple users ask for exact-match capability
-- Use case: code IDs, error strings, precise terms
-
-**Until then:** Document in ROADMAP, don't implement
-
----
-
-### 4.4 Self-Hosted Embeddings (No Ollama) 🟢 LOW PRIORITY
-
-**Status:** 📋 **DOCUMENTED** - Not scheduled  
-**Estimated:** 12-16 hours  
-**Value:** Remove Ollama dependency
-
-**Why Low:**
-- Ollama stable and working
-- Complete re-indexing required (breaking change)
-- New dependencies (sentence-transformers or llama-cpp)
-
-**Trigger for Re-evaluation:**
-- Ollama introduces breaking changes
-- User needs offline-only (no daemon)
-- User prefers pure-Python stack
-
-**Until then:** Document in ROADMAP, don't implement
-
----
-
-### 4.5 Other Features (Backlog)
-
-**Status:** 📋 **BACKLOG** - No priority assigned
-
-| Feature | Reason Not Prioritized |
-|---------|------------------------|
-| Hierarchical Indexing (### ####) | Current ## sufficient |
-| Graph Relationships | No clear use case yet |
-| Auto-summarization | LLM dependency, complex |
-| Plugin Architecture | Not requested |
-| Enterprise (multi-user) | Single-user focus for now |
-
----
-
-## QMD Comparison & Strategy
-
-**Our Position Relative to QMD:**
-
-| Feature | QMD | fmem Strategy |
-|---------|-----|---------------|
-| **Hybrid Search** | ✅ BM25 + Vector | 🟢 Low - QMD covers this |
-| **Reranking** | ✅ Cross-encoder | 🟡 Medium - Investigate value |
-| **Self-hosted** | ✅ Local GGUF | 🟢 Low - Ollama works |
-| **Auto-indexing** | ✅ `qmd update` | ❌ Won't implement - cron is fine |
-| **Chunk-level** | ❓ Unknown | ✅ Our differentiator |
-| **Multi-factor** | ❓ Unknown | ✅ Our differentiator |
-| **Sub-agent access** | ❌ No | ✅ Our differentiator |
-
-**Strategic Decision:**
-- ✅ Focus on **OpenClaw integration** (AGENTS.md triggers)
-- ✅ Focus on **sub-agent accessibility** (exec works)
-- ✅ Keep **simple** and **controlled**
-- 🟡 **MCP** expands reach without complexity
-
-**When to Use QMD:**
-- User wants automatic indexing
-- User needs hybrid search
-- User wants official OpenClaw support
-
-**When to Use fmem:**
-- User wants chunk-level precision
-- User wants multi-factor ranking
-- User needs sub-agent access
-- User wants control over triggers
-
----
-
-## Success Metrics
-
-| Metric | Current | Phase 2 Target | Phase 3 Target |
-|--------|---------|----------------|----------------|
-| Test Coverage | 75% | 80% | 85% |
-| Security Score | 8/10 | 8/10 | 8/10 |
-| Documentation | 9/10 | 9/10 | 9.5/10 |
-| Integration | 8/10 | 8/10 | 9/10 |
-| **Overall** | **7.8/10** | **8/10** | **8.5/10** |
-
----
-
-## Roadmap Governance
-
-**Review Cadence:** Monthly (first Monday)
-
-**Decision Criteria:**
-1. **User Requests:** Are people asking for this?
-2. **Value/Effort:** Is the juice worth the squeeze?
-3. **Dependencies:** What needs to happen first?
-4. **Alternatives:** Can QMD/other tools handle this?
-
-**Change Process:**
-1. Discuss in monthly review
-2. Update ROADMAP.md
-3. Adjust priorities if needed
-4. Document rationale
-
----
-
-**Last Review:** 2026-02-16  
-**Next Review:** 2026-03-01 (after 2 weeks Option 1 usage)
+**Quarterly** — next review July 2026 or when plugin is complete.

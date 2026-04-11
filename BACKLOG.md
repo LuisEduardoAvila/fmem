@@ -1,96 +1,58 @@
 # fmem Backlog
 
-Generated from Pi code review (2026-02-20) - Rating: 7.5/10
+**Last Updated:** 2026-04-11  
+**Previous backlog archived** — most items were fixed, superseded, or no longer relevant.
 
 ---
 
 ## 🔴 High Priority
 
-### 1. Fix N+1 Query Pattern in Search Results
-- **Location:** Search results enhancement
-- **Issue:** Inefficient database access pattern
-- **Acceptance:** Single query or batched fetch for related data
+### 1. OpenClaw Plugin: Trigger-Based Auto-Injection
 
-### 2. Add Comprehensive Test Coverage
-- **Priority:** High
-- **Focus areas:**
-  - Edge cases (empty content, single heading, malformed tables)
-  - Error paths (Ollama failures, DB corruption, disk full)
-  - Race conditions (concurrent index ops, cache expiration)
-  - Boundary conditions (max file size, query length, empty results)
+**Goal:** Build fmem into an OpenClaw plugin that injects relevant memory context before the agent sees the prompt — but only when triggers are detected in the incoming message.
+
+**Why:** Current `should_search()` trigger detection works but requires me (the agent) to explicitly call `memory_search`. A plugin using `before_prompt_build` hook would automate this with zero API calls (FAISS search on pre-computed local vectors).
+
+**Architecture:**
+- Hook: `before_prompt_build` (same as Active Memory plugin)
+- Trigger detection: Reuse `should_search()` patterns from fmem_integration.py
+- Search: FAISS IndexFlatIP on pre-computed embeddings (sub-ms, no API call)
+- Injection: Format results into context block, prepend to prompt
+- Scope: memory/ + notes/ + projects/ + custom dirs (broader than memory-core)
+
+**Key difference from `memory-auto-recall` plugin:**
+- Trigger-based, not blanket (no injection on "hi", "ok", etc.)
+- Uses fmem's FAISS index (zero API calls, Pi-friendly)
+- Broader scope (notes/, projects/, custom dirs)
+
+**Reference:** `openspec/changes/proactive-injection/` and `multi-language-triggers/` have prior design work.
 
 ---
 
 ## 🟡 Medium Priority
 
-### 3. Refactor Monolithic `fmem.py`
-- **Current size:** ~3,130 lines
-- **Issue:** Single class doing too much
-- **Options:**
-  - Extract chunking logic to separate module
-  - Split database operations into repository pattern
-  - Separate indexing from search concerns
+### 2. Further Split fmem.py (1,286 lines → <500)
 
-### 4. Standardize Error Handling
-- **Issue:** Inconsistent error patterns across codebase
-- **Acceptance:** Uniform error handling strategy with consistent patterns
+**Current state:** fmem.py was refactored from ~3,130 → 1,286 lines with 9 service modules extracted. Still the largest file at 48KB.
+
+**Why now:** Plugin work will be easier if the core module is smaller and has clear interfaces.
+
+**Targets for extraction:**
+- Session/recall management → `session_service.py`
+- Configuration loading → merge into `config.py`
+- CLI argument handling → already in `cli.py`, check for residue
 
 ---
 
 ## 🟢 Low Priority
 
-### 5. Add More Type Hints
-- **Focus:** Function signatures, return types, complex data structures
-- **Benefit:** Better IDE support, documentation
+### 3. Test Coverage Gaps
 
-### 6. Move Imports to Top of File
-- **Issue:** Some imports inside functions
-- **Trade-off:** May be intentional for lazy loading / circular imports handling
+**Current state:** 17 tests across 3 files (428 lines). Core search and indexing work well.
 
----
+**Gaps:**
+- Edge cases (empty content, single heading, malformed tables)
+- Error paths (Ollama failures, DB corruption, disk full)
+- Boundary conditions (max file size, query length, empty results)
 
-## ⚠️ Design Concerns
-
-### 7. Hybrid Chunking Detection Logic
-- **Current behavior:** md2chunks path only if tables detected
-- **Issue:** Creates inconsistent behavior (table files = new chunking, non-table = old)
-- **Consider:** Always use md2chunks or make detection configurable
-- **Impact:** Two code paths to maintain, potential for divergent behavior
-
----
-
-## 🧪 Test Coverage Gaps Detail
-
-### Edge Cases
-- [ ] Empty content files
-- [ ] Single heading with no content
-- [ ] Malformed markdown tables
-
-### Error Paths
-- [ ] Ollama connection failures
-- [ ] Database corruption scenarios
-- [ ] Disk full conditions
-
-### Race Conditions
-- [ ] Concurrent index operations
-- [ ] Cache expiration during use
-
-### Boundary Conditions
-- [ ] Maximum file size limits
-- [ ] Query length limits
-- [ ] Empty search results handling
-
----
-
-## Summary Stats
-
-| Category | Count | Severity |
-|----------|-------|----------|
-| Bugs | 4 | 2 Medium, 2 Low |
-| Security | 1 | Low |
-| Performance | 4 | 2 Medium, 2 Low |
-| Code Style | 5 | Low |
-| Design | 2 | Low |
-| Test Coverage | 3 | Medium |
-
-**Overall:** Production-ready with minor issues. Priority is N+1 query fix and comprehensive tests.
+**Why low:** fmem is production-stable. These are hardening, not features.

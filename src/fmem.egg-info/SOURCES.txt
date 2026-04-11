@@ -2,10 +2,19 @@ README.md
 pyproject.toml
 src/fmem/__init__.py
 src/fmem/__main__.py
+src/fmem/chunking.py
 src/fmem/cli.py
+src/fmem/config.py
+src/fmem/database_service.py
+src/fmem/document_manager.py
+src/fmem/embedding_service.py
+src/fmem/file_summarizer.py
 src/fmem/fmem.py
 src/fmem/fmem_integration.py
-src/fmem/memory_utils.py
+src/fmem/md2chunks_splitter.py
+src/fmem/memory_retrieval.py
+src/fmem/result_enhancer.py
+src/fmem/search_index.py
 src/fmem.egg-info/PKG-INFO
 src/fmem.egg-info/SOURCES.txt
 src/fmem.egg-info/dependency_links.txt
@@ -13,4 +22,5 @@ src/fmem.egg-info/entry_points.txt
 src/fmem.egg-info/requires.txt
 src/fmem.egg-info/top_level.txt
 tests/test_fmem.py
+tests/test_integration.py
 tests/test_location_ranking.py

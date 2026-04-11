@@ -2,7 +2,7 @@ Metadata-Version: 2.4
 Name: fmem
 Version: 3.1.0
 Summary: FAISS-based Memory Search for OpenClaw - Privacy-focused semantic search with local embeddings
-Author-email: Luis Eduardo Avila <luis.eduardo.avila@gmail.com>
+Author-email: Luis Eduardo Avila <luis.eduardo.avila@users.noreply.github.com>
 License: MIT
 Requires-Python: >=3.9
 Description-Content-Type: text/markdown
@@ -15,34 +15,11 @@ Requires-Dist: psutil>=5.9.0
 
 **Contextual Memory for Natural Conversations**
 
-Version: 3.0.0  
+Version: 3.2.0  
 Status: Production Ready ✅  
 License: MIT
 
----
-
-## What is fmem vs OpenClaw?
-
-**🤖 OpenClaw** is the AI assistant framework that manages conversations, implements agent logic, and provides the interface for interacting with you.
-
-**🧠 fmem** is a specialized memory system that OpenClaw uses to recall your previous conversations and context. It's like OpenClaw's "memory brain".
-
-### Relationship
-```
-You ↔ OpenClaw (AI Assistant) ↔ fmem (Memory System)
-```
-
-**OpenClaw does:**
-- Manages conversations and agent behavior
-- Makes decisions about when to use memory
-- Generates responses based on retrieved context
-- Provides CLI interface for standalone operations
-
-**fmem does:**
-- Stores and indexes your memory files (documents, notes, etc.)
-- Performs semantic search across your content
-- Provides auto_recall functionality for OpenClaw integration
-- Maintains FAISS indexes for fast similarity search
+**Latest:** Hybrid chunking with table-aware splitting (v3.2.0, Feb 2026)
 
 ---
 
@@ -54,8 +31,18 @@ fmem is a privacy-first memory system that makes AI conversations feel natural a
 
 **Core Innovation:** Chunk-level semantic indexing splits documents by structure (`##` headings) rather than arbitrary token boundaries. This delivers:
 - **Precise retrieval** — Gets the relevant section, not the whole file
-- **~57% token reduction** — Less noise, more signal in context windows
+- **Token-efficient retrieval** — Returns relevant chunks vs full files
 - **Natural conversation flow** — References that feel contextual, not robotic
+
+**v3.2.0 Update: Hybrid Chunking**
+
+New table-aware chunking eliminates LLM-based workarounds:
+- **Tables treated as atomic units** — No more mid-row splits
+- **Zero LLM calls** — Pure Python regex parsing
+- **Faster indexing** — Python regex parsing vs previous LLM-based extraction
+- **Inspired by** [md2chunks](https://github.com/verloop/md2chunks), [advanced-chunker](https://github.com/rango-ramesh/advanced-chunker)
+
+See [docs/CHUNKING_STRATEGY.md](./docs/CHUNKING_STRATEGY.md) for full details.
 
 **How It Works:**
 
@@ -92,6 +79,31 @@ pie title Multi-Factor Weighting
 
 ---
 
+## What is fmem vs OpenClaw?
+
+**🤖 OpenClaw** is the AI assistant framework that manages conversations, implements agent logic, and provides the interface for interacting with you.
+
+**🧠 fmem** is a specialized memory system that OpenClaw uses to recall your previous conversations and context. It's like OpenClaw's "memory brain".
+
+### Relationship
+```
+You ↔ OpenClaw (AI Assistant) ↔ fmem (Memory System)
+```
+
+**OpenClaw does:**
+- Manages conversations and agent behavior
+- Makes decisions about when to use memory
+- Generates responses based on retrieved context
+- Provides CLI interface for standalone operations
+
+**fmem does:**
+- Stores and indexes your memory files (documents, notes, etc.)
+- Performs semantic search across your content
+- Provides auto_recall functionality for OpenClaw integration
+- Maintains FAISS indexes for fast similarity search
+
+---
+
 ## Project Structure
 
 ```
@@ -99,9 +111,8 @@ projects/fmem/
 ├── src/                    # Core source code
 ├── docs/                   # Documentation
 ├── tests/                  # Test suite
-├── examples/               # Usage examples
 ├── config/                 # Configuration templates
-├── mcp-wrapper/           # MCP server implementation (future)
+├── mcp-wrapper/           # MCP server documentation (planned)
 └── README.md              # This file
 ```
 
@@ -140,10 +151,11 @@ graph TB
 
 | Component | Purpose | Location | Usage |
 |-----------|---------|----------|-------|
-| `MemoryRetrieval` | Core search class | `src/fmem/fmem.py` | Both CLI & OpenClaw Integration |
+| `MemoryRetrieval` | Core search class (composition root) | `src/fmem/memory_retrieval.py` | Both CLI & OpenClaw Integration |
 | `auto_recall()` | OpenClaw integration function | `src/fmem/fmem_integration.py` | Called by OpenClaw: `from fmem import auto_recall` |
 | `cli.py` | Command-line interface | `src/fmem/cli.py` | Standalone CLI: `fmem index`, `fmem search` |
-| `ConfigManager` | Configuration handling | `src/fmem/fmem.py` | Used by both CLI and OpenClaw |
+| `ConfigService` | Configuration handling | `src/fmem/config.py` | Used by both CLI and OpenClaw |
+| `chunking.py` | Hybrid chunking (table-aware + headings) | `src/fmem/chunking.py` | Used by DocumentManager |
 
 ---
 
@@ -191,6 +203,113 @@ You → Message → OpenClaw Auto-Searches fmem → Injects results
 | **Implementation** | ✅ Live now | 📋 Planned |
 
 **Bottom Line:** Current implementation requires OpenClaw to **actively retrieve** when triggers match. Future would make memory **automatically present** in every conversation.
+
+---
+
+## 💉 Context Injection Format
+
+When fmem retrieves memories, they're formatted into a structured context block that OpenClaw injects into the conversation. This format is designed to be **immediately useful to the LLM** while maintaining natural conversation flow.
+
+### Injection Structure
+
+```xml
+<retrieved_memory>
+
+I found {N} relevant memories for this conversation:
+
+[1] {Relevance}: {Document type} from {location}/{filename}
+   Source: {full_file_path}
+   About this file: {precomputed_summary} | {dynamic_stats}
+   
+   Under '{heading}':
+   {content_preview}
+   [relevance: {score}%]
+
+[2] {Relevance}: ...
+   ...
+
+</retrieved_memory>
+```
+
+### Why This Format Matters for the LLM
+
+**1. XML Tags (`<retrieved_memory>`)**
+- **Rationale:** Creates clear semantic boundaries between retrieved context and conversation history
+- **Benefit:** LLM can distinguish "this is external knowledge" vs "this is current conversation"
+- **Prevents:** Hallucinations where the LLM confuses retrieved facts with user statements
+
+**2. Relevance Ranking (`[1] Most relevant`, `[2] Also relevant`)**
+- **Rationale:** LLMs process information sequentially; early items get more attention
+- **Benefit:** Ensures the most important context appears first in the LLM's context window
+- **Impact:** Higher-quality responses when token limits are tight
+
+**3. Source Attribution (`Source: {filepath}`)**
+- **Rationale:** LLMs perform better when they understand information provenance
+- **Benefit:** Enables the LLM to cite sources naturally ("According to your notes from...")
+- **Trust:** Helps LLM assess confidence (personal notes vs external docs)
+
+**4. Document Type + Location Context**
+- **Rationale:** Same content type means different things based on where it lives
+- **Examples:**
+  - `"Memory from memory/2026-02-23.md"` → Personal reflection
+  - `"Decision from decisions/backup.md"` → Formal choice you made
+  - `"Project notes from projects/BingeWatching/"` → Active project context
+- **Benefit:** LLM adjusts tone and confidence based on document type
+
+**5. Heading Context (`Under '{heading}':`)**
+- **Rationale:** Preserves document structure that was lost during chunking
+- **Benefit:** LLM understands "this is from the Architecture section" not just random text
+- **Navigation:** Helps LLM locate full context if needed
+
+**6. Combined Summaries (Pre-computed + Dynamic Stats)**
+- **Pre-computed:** File-level summary captured during indexing (fast, holistic)
+- **Dynamic:** Stats extracted from matching chunks (specific, query-relevant)
+- **Example:** `BingeWatching project tracking | Relevant stats: 41 series tracked, 8.7 average rating`
+- **Benefit:** LLM gets both "what is this file about" and "why does it match this query"
+
+**7. Relevance Scores (`[relevance: 85%]`))**
+- **Rationale:** Gives the LLM confidence calibration
+- **Benefit:** Helps LLM weight information appropriately (90% = very likely relevant, 40% = possibly relevant)
+- **Prevents:** Over-confident responses based on weak matches
+
+### Formatting Impact on Response Quality
+
+| Field | Why It Matters | Impact |
+|-------|----------------|--------|
+| **XML boundaries** | Separates memory from conversation | Reduces hallucinations |
+| **Ranking** | Priority ordering | Most important context gets attention |
+| **Source paths** | Citation & provenance | Natural source attribution |
+| **Doc type** | Context interpretation | Appropriate tone/weight |
+| **Headings** | Structural context | Better understanding |
+| **Scores** | Confidence calibration | Appropriate certainty |
+
+### Example Injection
+
+```xml
+<retrieved_memory>
+
+I found 2 relevant memories for this conversation:
+
+[1] Most relevant: Memory from memory/2026-02-23.md
+   Source: /home/luis/.openclaw/workspace/memory/2026-02-23.md
+   About this file: Daily log of workspace activities | Relevant stats: 41 series tracked, 8.7 average rating
+   
+   Under 'BingeWatching Project':
+   Populated IMDb ratings for all 41 series and 40 movies. Updated weekly reports to include TMDB ratings in recommendations. 
+   [relevance: 92%]
+
+[2] Also relevant: Decision from decisions/backup.md
+   Source: /home/luis/.openclaw/workspace/decisions/backup.md
+   About this file: Repository backup strategy and data separation decisions
+   
+   Under 'Repository Mapping':
+   SmartSpud is the private workspace backup. fmem is now a separate public repository.
+   [relevance: 78%]
+
+</retrieved_memory>
+```
+
+**Result:** OpenClaw can naturally respond with *"Based on your notes from this morning, you mentioned tracking 41 series with an average rating of 8.7. You also decided to keep fmem as a separate public repository according to your backup strategy."*
 
 ---
 
@@ -321,33 +440,26 @@ Current status and future plans...
 
 ---
 
-## 🧠 Adaptive Chunking (Hardware-Optimized)
+## Chunking Strategy
 
-**fmem v3.1.0+** introduces **Adaptive Chunking** – intelligent content sizing based on available system memory.
+**fmem v3.2.0** uses hybrid chunking with automatic table detection:
+- **Table-aware:** Tables treated as atomic units (never split mid-row)
+- **Heading-based:** Standard ## heading splits for non-table content
+- **Smart routing:** Auto-detects tables and uses appropriate strategy
 
-### How It Works
+**v3.1.0** used fixed-size chunking (800 chars) based on embedding model token limits.
 
-```
-Content → Hardware Detection → Optimal Chunk Sizes → Semantic Embedding
-                   ↑
-            Available RAM determines:
-            • <1GB: 1,000 char chunks (Pi Zero)
-            • <2GB: 2,000 char chunks (Pi 3)
-            • >2GB: 5,000 char chunks (Pi 4/5, desktops)
-```
+### The Constraint
 
-### Hardware Detection
+Uses `all-minilm:22m` which has:
+- **Context length:** 512 tokens
+- **Embedding length:** 384 dimensions
 
-fmem automatically detects available memory and adjusts chunk sizes:
+In practice: **~800 characters** fits safely within 512 tokens.
 
-```python
-from fmem import get_optimal_chunk_size
+Hardware RAM doesn't constrain chunking - the embedding model does.
 
-chunk_size = get_optimal_chunk_size()  # Returns optimal size based on hardware
-# Returns: 1000, 2000, or 5000 based on available RAM
-```
-
-### Adaptive Splitting
+### Smart Boundary Detection
 
 Large sections are intelligently split at optimal boundaries:
 
@@ -358,28 +470,28 @@ Large sections are intelligently split at optimal boundaries:
 
 Each split includes **overlap** (100 characters) to preserve semantic continuity between chunks.
 
-### Hardware Support
+### Fixed Chunk Size
 
-| System Type | RAM | Chunk Size | Use Case |
-|-------------|-----|------------|----------|
-| 🍓 Pi Zero | <1GB | 1,000 chars | Lowest memory footprint |
-| 🍓 Pi 3 | 1-2GB | 2,000 chars | Balanced performance |
-| 🍓 Pi 4/5 | 2GB+ | 5,000 chars | Full semantic richness |
-| 💻 Desktop | 4GB+ | 5,000 chars | Maximum context |
+| Setting | Value | Reason |
+|---------|-------|--------|
+| Chunk size | **800 chars** | Fits in 512 token limit |
+| Overlap | **100 chars** | Semantic continuity |
+| Preprocessing | **~500 chars** | Headings + summary for embedding |
 
-### No Content Truncation
+### Content Preservation
 
-Previous versions truncated content to 1,000 characters before embedding. With Adaptive Chunking:
+Full chunk content is stored in FAISS index. Before embedding, content is preprocessed to ~500 characters (headings + summary) to optimize search quality.
 
 ```python
-# OLD: Truncated content (lost context)
-embedding = model.encode(content[:1000])  # ❌ Lost semantic information
+# Full chunk stored for retrieval
+chunk.content  # Full text (up to 800 chars)
 
-# NEW: Full content preserved
-embedding = model.encode(chunk.content)    # ✅ Complete semantic context
+# Preprocessed for embedding
+processed = headings + summary  # ~500 chars
+embedding = model.encode(processed)  # Fits in 512 tokens
 ```
 
-**All indexed content now preserves full semantic information, significantly improving search quality across all hardware configurations.**
+**Search queries the full semantic representation while respecting model limits.**
 
 ---
 
@@ -491,11 +603,13 @@ Status: Option 1 complete (AGENTS.md), Option B deferred for evaluation
 
 ## Known Technical Debt
 
-1. **Monolithic Class:** `MemoryRetrieval` is 1,800+ lines - should be refactored into smaller classes
-2. **Global State:** `CONFIG` singleton makes testing difficult
-3. **No Async:** Synchronous only - blocks during embedding generation
-4. **Cache TTL:** 1 hour fixed - should be configurable
-5. **No Migration:** SQLite schema changes require manual migration
+1. **Global State:** `CONFIG` singleton makes testing difficult
+2. **No Async:** Synchronous only - blocks during embedding generation
+3. **Cache TTL:** 1 hour fixed - should be configurable
+4. **No Migration:** SQLite schema changes require manual migration
+
+**✅ Fixed in recent refactor:**
+- ~~Monolithic MemoryRetrieval class~~ - Refactored into specialized services (Phase 8, 2026-02-27)
 
 ---
 
@@ -559,11 +673,9 @@ fmem uses a configuration file at `~/.openclaw/memory/fmem.conf`. For detailed c
 |---------|---------|-------------|
 | **Core Settings** | | |
 | `data_dir` | `~/.openclaw/memory/` | Storage location for indexes and metadata |
-| `ollama_url` | `http://localhost:11434` | Ollama API endpoint for embeddings |
 | **Search Settings** | | |
 | `min_similarity_threshold` | `0.3` | Minimum cosine similarity (0.0-1.0) for results |
-| `rate_limit_requests` | `10` | Maximum Ollama API calls per window |
-| `rate_limit_window_seconds` | `60` | Rate limiting window in seconds |
+
 | **File Indexing** | | |
 | `additional_dirs` | *(varies)* | Directories to recursively auto-index |
 | `exclude_dirs` | `venv,__pycache__,node_modules` | Directories to exclude from indexing |
@@ -584,7 +696,53 @@ fmem uses a configuration file at `~/.openclaw/memory/fmem.conf`. For detailed c
 
 ---
 
-**Last Updated:** 2026-02-16
+## Acknowledgments
+
+**Embedding Technology:**
+- **[qdrant/FastEmbed](https://github.com/qdrant/fastembed)** - Local ONNX-based embeddings without external API calls. Production-ready embedding models running locally on CPU with excellent performance characteristics.
+
+**Hybrid chunking approach inspired by:**
+- **[verloop/md2chunks](https://github.com/verloop/md2chunks)** - Table-aware markdown splitting with atomic table handling
+- **[rango-ramesh/advanced-chunker](https://github.com/rango-ramesh/advanced-chunker)** - Semantic merging strategies for optimal chunk boundaries  
+- **And 5 other open-source chunking projects** analyzed during development
+
+**All external code adapted and re-implemented in pure Python** - no LLM dependencies, zero external API calls.
+
+---
+
+## Changelog
+
+### v3.2.0 (2026-02-22) - Hybrid Chunking & Context Injection
+- ✅ **New:** Table-aware chunking (tables as atomic units)
+- ✅ **Performance:** 20x faster indexing (1-2s vs 30s+)
+- ✅ **Removed:** All LLM-based workarounds (6-8 API calls eliminated)
+- ✅ **New:** `md2chunks_splitter.py` module for hybrid splitting
+- ✅ **Improved:** Header context preservation for all chunks
+- ✅ **Fixed:** Duplicate chunk detection (re-indexing no longer creates duplicates)
+- ✅ **Fixed:** Recency weight calculation (30% not 9% - was double-applied)
+- ✅ **Fixed:** mtime preservation (created_at preserved, last_modified uses file time)
+- ✅ **New:** Configurable rate limiting (600 req/min default, tunable per hardware)
+- ✅ **New:** Pre-computed file summaries in metadata (for context injection)
+- ✅ **New:** Dynamic stats extraction from search results
+- ✅ **New:** Special handling for memory files (extract topics + status)
+- ✅ **New:** Full source path in context (for file reading by LLM)
+- ✅ **New:** Multi-factor context: Pre-computed summary + Dynamic stats
+- 📚 **Docs:** Updated [CHUNKING_STRATEGY.md](./docs/CHUNKING_STRATEGY.md), [INTEGRATION_FLOW.md](./docs/INTEGRATION_FLOW.md)
+
+### v3.1.0 (2026-02-19) - Adaptive Chunking
+- ✅ Fixed chunk size to 800 chars (all-minilm:22m constraint)
+- ✅ Smart boundary detection (## → paragraphs → sentences)
+- ✅ 100 char overlap for semantic continuity
+
+### v3.0.0 (2026-02-15) - Production Release
+- ✅ Core FAISS indexing
+- ✅ Multi-factor ranking (semantic + recency + location)
+- ✅ Security hardening (path traversal, input validation)
+- ✅ OpenClaw integration via `auto_recall()`
+
+---
+
+**Last Updated:** 2026-02-22
 
 ---
 

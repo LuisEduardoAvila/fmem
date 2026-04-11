@@ -1,0 +1,13 @@
+schema: openspec.v1
+created: 2026-03-19
+change: proactive-injection
+status: proposed
+depends_on:
+  - multi-language-triggers (Phase 7 for OpenClaw hook integration)
+scope: fmem_integration.py (minimal addition)
+impact:
+  - Add: _proactive_done flag
+  - Add: get_proactive_context() function
+  - Add: reset_proactive() function
+  - Reuse: auto_recall(), format_results(), _session_recalled
+lines_of_code: ~20 (new code only)
