@@ -1066,6 +1066,32 @@ class FastEmbedClient:
         """Check if FastEmbed is available (model can load)."""
         return self._load_model()
     
+    def is_healthy(self, force_check: bool = False) -> bool:
+        """
+        Check if FastEmbed is healthy (cached for 60 seconds).
+        
+        Args:
+            force_check: If True, bypass cache
+            
+        Returns:
+            True if FastEmbed model can generate embeddings
+        """
+        import time
+        
+        # Use cached result if available
+        if not force_check and hasattr(self, '_health_check_cache'):
+            cached_result, cached_time = self._health_check_cache
+            if time.time() - cached_time < 60:
+                return cached_result
+        
+        # Perform actual check
+        is_healthy = self._load_model()
+        
+        # Cache the result
+        self._health_check_cache = (is_healthy, time.time())
+        
+        return is_healthy
+    
     def generate_embeddings(self, texts: List[str]) -> Optional[np.ndarray]:
         """
         Generate embeddings using FastEmbed (local, no HTTP).

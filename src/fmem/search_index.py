@@ -5,13 +5,57 @@ Manages FAISS vector index operations with metadata mapping.
 Extracted from MemoryRetrieval to follow Single Responsibility Principle.
 """
 
+import fcntl
 import json
 import logging
 import os
+import tempfile
+from contextlib import contextmanager
 from typing import List, Dict, Optional, Tuple
 import numpy as np
 
 logger = logging.getLogger(__name__)
+
+
+@contextmanager
+def _file_lock(lock_path: str, timeout: int = 30):
+    """
+    Context manager for exclusive file locking using fcntl.
+    
+    Args:
+        lock_path: Path to lock file
+        timeout: Maximum seconds to wait for lock (default 30)
+        
+    Raises:
+        TimeoutError: If lock cannot be acquired within timeout
+    """
+    lock_file = None
+    try:
+        # Ensure parent directory exists
+        os.makedirs(os.path.dirname(lock_path), exist_ok=True)
+        
+        lock_file = open(lock_path, 'w')
+        
+        # Try to acquire exclusive lock with timeout
+        import time
+        start_time = time.time()
+        while True:
+            try:
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except (IOError, OSError):
+                if time.time() - start_time >= timeout:
+                    raise TimeoutError(f"Could not acquire lock on {lock_path} within {timeout}s")
+                time.sleep(0.1)
+        
+        yield lock_file
+    finally:
+        if lock_file is not None:
+            try:
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+                lock_file.close()
+            except (IOError, OSError):
+                pass
 
 
 class SearchIndex:
@@ -226,9 +270,74 @@ class SearchIndex:
         logger.info(f"Removed {removed_count} chunks, index now has {len(self._chunk_index_map)} entries")
         return removed_count
     
+    def _create_backup(self, filepath: str) -> bool:
+        """
+        Create a backup copy of a file with .bak extension.
+        
+        Args:
+            filepath: Path to file to backup
+            
+        Returns:
+            True if backup created or original doesn't exist
+        """
+        if not os.path.exists(filepath):
+            return True
+        
+        backup_path = filepath + '.bak'
+        
+        # Remove old backup if exists
+        if os.path.exists(backup_path):
+            try:
+                os.unlink(backup_path)
+            except OSError:
+                pass
+        
+        try:
+            import shutil
+            shutil.copy2(filepath, backup_path)
+            logger.debug(f"Created backup at {backup_path}")
+            return True
+        except Exception as e:
+            logger.warning(f"Failed to create backup of {filepath}: {e}")
+            return False
+    
+    def _validate_faiss_index(self) -> bool:
+        """
+        Validate FAISS index by attempting a simple search operation.
+        
+        Returns:
+            True if index is valid and operational
+        """
+        import faiss
+        
+        if self.index is None:
+            return False
+        
+        try:
+            # If index is empty, it's valid (just empty)
+            if self.index.ntotal == 0:
+                return True
+            
+            # Try to reconstruct a vector (validates index integrity)
+            vector = self.index.reconstruct_n(0, 1)
+            if vector is not None and len(vector) > 0:
+                return True
+            
+            # Try a dummy search
+            dummy_query = np.zeros((1, self.dimension), dtype=np.float32)
+            self.index.search(dummy_query, 1)
+            return True
+        except Exception as e:
+            logger.error(f"FAISS index validation failed: {e}")
+            return False
+    
     def save(self, index_path: str = None, mapping_path: str = None) -> bool:
         """
-        Save FAISS index and chunk mapping to disk.
+        Save FAISS index and chunk mapping to disk atomically.
+        
+        Uses write-to-temp-then-rename pattern for atomicity.
+        Uses file locking to prevent concurrent write corruption.
+        Creates backup (.bak) before overwriting.
         
         Args:
             index_path: Path for FAISS index file (default: data_dir/faiss_index.fai)
@@ -246,30 +355,83 @@ class SearchIndex:
         if mapping_path is None:
             mapping_path = os.path.join(self.data_dir, 'chunk_index_map.json')
         
-        # Save FAISS index
-        if self.index is not None:
-            try:
-                faiss.write_index(self.index, index_path)
-                logger.info(f"FAISS index saved to {index_path}")
-            except Exception as e:
-                logger.error(f"Failed to save FAISS index: {e}")
-                success = False
+        # Lock file for exclusive access
+        lock_path = os.path.join(self.data_dir, '.fmem_index.lock')
         
-        # Save chunk index map
-        if self._chunk_index_map:
-            try:
-                with open(mapping_path, 'w') as f:
-                    json.dump(self._chunk_index_map, f, indent=2)
-                logger.info(f"Chunk index map saved to {mapping_path}")
-            except Exception as e:
-                logger.error(f"Failed to save chunk index map: {e}")
-                success = False
+        try:
+            with _file_lock(lock_path, timeout=30):
+                # Create backups before overwriting
+                self._create_backup(index_path)
+                self._create_backup(mapping_path)
+                
+                # Save FAISS index atomically
+                if self.index is not None:
+                    try:
+                        # Write to temp file first
+                        fd, temp_path = tempfile.mkstemp(
+                            dir=os.path.dirname(index_path) or '.',
+                            prefix='.faiss_index.tmp.'
+                        )
+                        try:
+                            os.close(fd)
+                            faiss.write_index(self.index, temp_path)
+                            # fsync to ensure data is on disk
+                            with open(temp_path, 'rb') as f:
+                                os.fsync(f.fileno())
+                            # Atomic rename
+                            os.replace(temp_path, index_path)
+                            logger.info(f"FAISS index saved to {index_path}")
+                        except Exception:
+                            # Clean up temp file on failure
+                            try:
+                                os.unlink(temp_path)
+                            except OSError:
+                                pass
+                            raise
+                    except Exception as e:
+                        logger.error(f"Failed to save FAISS index: {e}")
+                        success = False
+                
+                # Save chunk index map atomically
+                if self._chunk_index_map:
+                    try:
+                        # Write to temp file first
+                        fd, temp_path = tempfile.mkstemp(
+                            dir=os.path.dirname(mapping_path) or '.',
+                            prefix='.chunk_index_map.tmp.',
+                            suffix='.json'
+                        )
+                        try:
+                            os.close(fd)
+                            with open(temp_path, 'w') as f:
+                                json.dump(self._chunk_index_map, f, indent=2)
+                                f.flush()
+                                os.fsync(f.fileno())
+                            # Atomic rename
+                            os.replace(temp_path, mapping_path)
+                            logger.info(f"Chunk index map saved to {mapping_path}")
+                        except Exception:
+                            # Clean up temp file on failure
+                            try:
+                                os.unlink(temp_path)
+                            except OSError:
+                                pass
+                            raise
+                    except Exception as e:
+                        logger.error(f"Failed to save chunk index map: {e}")
+                        success = False
+        except TimeoutError as e:
+            logger.error(f"Could not acquire lock for save: {e}")
+            success = False
         
         return success
     
     def load(self, index_path: str = None, mapping_path: str = None) -> bool:
         """
         Load FAISS index and chunk mapping from disk.
+        
+        Uses shared file locking for safe concurrent access.
+        Validates FAISS index after loading; restores from backup if corrupted.
         
         Args:
             index_path: Path for FAISS index file (default: data_dir/faiss_index.fai)
@@ -285,34 +447,128 @@ class SearchIndex:
         if mapping_path is None:
             mapping_path = os.path.join(self.data_dir, 'chunk_index_map.json')
         
+        # Also check for backups
+        index_backup_path = index_path + '.bak'
+        mapping_backup_path = mapping_path + '.bak'
+        
         success = False
         
-        # Load FAISS index
-        if os.path.exists(index_path):
-            try:
-                self.index = faiss.read_index(index_path)
-                logger.info(f"Loaded FAISS index from {index_path}")
-                success = True
-            except Exception as e:
-                logger.error(f"Failed to load FAISS index: {e}")
-                # Initialize new index
-                self.index = faiss.IndexFlatIP(self.dimension)
-        else:
-            logger.warning(f"FAISS index not found at {index_path}, using empty index")
-            self.index = faiss.IndexFlatIP(self.dimension)
+        # Lock file for shared access (readers can access concurrently)
+        lock_path = os.path.join(self.data_dir, '.fmem_index.lock')
         
-        # Load chunk index map
-        if os.path.exists(mapping_path):
+        # Use non-blocking shared lock for reads
+        lock_file = None
+        try:
             try:
-                with open(mapping_path, 'r') as f:
-                    self._chunk_index_map = json.load(f)
-                logger.info(f"Loaded {len(self._chunk_index_map)} chunk mappings from {mapping_path}")
-            except Exception as e:
-                logger.error(f"Failed to load chunk index map: {e}")
-                self._chunk_index_map = []
-        else:
-            logger.warning(f"Chunk index map not found at {mapping_path}")
-            self._chunk_index_map = []
+                os.makedirs(os.path.dirname(lock_path) or '.', exist_ok=True)
+                lock_file = open(lock_path, 'w')
+                # Shared lock for reads - multiple readers allowed
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_SH | fcntl.LOCK_NB)
+            except (IOError, OSError):
+                # Non-critical: continue without lock if unable to acquire
+                logger.debug("Could not acquire shared lock for load, proceeding without")
+                lock_file = None
+            
+            # Load FAISS index
+            index_loaded = False
+            if os.path.exists(index_path):
+                try:
+                    self.index = faiss.read_index(index_path)
+                    logger.info(f"Loaded FAISS index from {index_path}")
+                    
+                    # Validate the loaded index
+                    if self._validate_faiss_index():
+                        success = True
+                        index_loaded = True
+                    else:
+                        logger.error(f"FAISS index validation failed - index may be corrupted")
+                        # Try to restore from backup
+                        if os.path.exists(index_backup_path):
+                            logger.info(f"Attempting to restore FAISS index from backup...")
+                            try:
+                                self.index = faiss.read_index(index_backup_path)
+                                if self._validate_faiss_index():
+                                    logger.info(f"Successfully restored FAISS index from backup")
+                                    success = True
+                                    index_loaded = True
+                                else:
+                                    logger.error(f"Backup FAISS index also invalid")
+                                    self.index = faiss.IndexFlatIP(self.dimension)
+                            except Exception as backup_e:
+                                logger.error(f"Failed to restore from backup: {backup_e}")
+                                self.index = faiss.IndexFlatIP(self.dimension)
+                        else:
+                            logger.warning(f"No backup available at {index_backup_path}")
+                            self.index = faiss.IndexFlatIP(self.dimension)
+                except Exception as e:
+                    logger.error(f"Failed to load FAISS index: {e}")
+                    # Try backup
+                    if os.path.exists(index_backup_path):
+                        logger.info(f"Attempting to restore FAISS index from backup...")
+                        try:
+                            self.index = faiss.read_index(index_backup_path)
+                            if self._validate_faiss_index():
+                                logger.info(f"Successfully restored FAISS index from backup")
+                                success = True
+                                index_loaded = True
+                            else:
+                                self.index = faiss.IndexFlatIP(self.dimension)
+                        except Exception as backup_e:
+                            logger.error(f"Backup also corrupted: {backup_e}")
+                            self.index = faiss.IndexFlatIP(self.dimension)
+                    else:
+                        self.index = faiss.IndexFlatIP(self.dimension)
+            else:
+                logger.warning(f"FAISS index not found at {index_path}, using empty index")
+                self.index = faiss.IndexFlatIP(self.dimension)
+            
+            # Load chunk index map
+            mapping_loaded = False
+            if os.path.exists(mapping_path):
+                try:
+                    with open(mapping_path, 'r') as f:
+                        self._chunk_index_map = json.load(f)
+                    logger.info(f"Loaded {len(self._chunk_index_map)} chunk mappings from {mapping_path}")
+                    mapping_loaded = True
+                except Exception as e:
+                    logger.error(f"Failed to load chunk index map: {e}")
+                    # Try backup
+                    if os.path.exists(mapping_backup_path):
+                        logger.info(f"Attempting to restore chunk index map from backup...")
+                        try:
+                            with open(mapping_backup_path, 'r') as f:
+                                self._chunk_index_map = json.load(f)
+                            logger.info(f"Restored {len(self._chunk_index_map)} chunk mappings from backup")
+                            mapping_loaded = True
+                        except Exception as backup_e:
+                            logger.error(f"Backup also failed: {backup_e}")
+                            self._chunk_index_map = []
+                    else:
+                        self._chunk_index_map = []
+            else:
+                logger.warning(f"Chunk index map not found at {mapping_path}")
+                # Try backup
+                if os.path.exists(mapping_backup_path):
+                    logger.info(f"Attempting to restore chunk index map from backup...")
+                    try:
+                        with open(mapping_backup_path, 'r') as f:
+                            self._chunk_index_map = json.load(f)
+                        logger.info(f"Restored {len(self._chunk_index_map)} chunk mappings from backup")
+                        mapping_loaded = True
+                    except Exception:
+                        self._chunk_index_map = []
+                else:
+                    self._chunk_index_map = []
+            
+            # Overall success if at least index loaded (mapping is optional)
+            success = index_loaded
+        finally:
+            if lock_file is not None:
+                try:
+                    fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+                    lock_file.close()
+                except (IOError, OSError):
+                    pass
         
         return success
     

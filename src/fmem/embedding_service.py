@@ -8,14 +8,56 @@ Extracted from MemoryRetrieval as part of Phase 2 SRP decomposition.
 
 import hashlib
 import logging
+import os
+import signal as signal_module  # Renamed to avoid collision
 import time
 import re
 from collections import OrderedDict
+from functools import wraps
 from typing import List, Optional
 
 import numpy as np
 
 logger = logging.getLogger(__name__)
+
+
+def timeout(seconds: int, timeout_message: str = "Operation timed out"):
+    """
+    Decorator to add timeout to a function using SIGALRM (Unix only).
+    
+    On Windows, this decorator is a no-op since SIGALRM is not available.
+    
+    Args:
+        seconds: Timeout in seconds
+        timeout_message: Message for TimeoutError
+        
+    Returns:
+        Decorated function that raises TimeoutError if execution exceeds seconds
+    """
+    def decorator(func):
+        # Skip on Windows where SIGALRM is not available
+        if os.name == 'nt' or not hasattr(signal_module, 'SIGALRM'):
+            return func
+            
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            def handler(signum, frame):
+                raise TimeoutError(timeout_message)
+            
+            # Set up signal handler
+            old_handler = signal_module.signal(signal_module.SIGALRM, handler)
+            signal_module.alarm(seconds)
+            
+            try:
+                result = func(*args, **kwargs)
+            finally:
+                signal_module.alarm(0)  # Disable alarm
+                signal_module.signal(signal_module.SIGALRM, old_handler)  # Restore handler
+            
+            return result
+        
+        return wrapper
+    return decorator
 
 
 # ============================================================================
@@ -340,6 +382,8 @@ class EmbeddingService:
         """
         Get embedding from cache or generate new one with rate limiting.
         
+        Includes configurable timeout (default 60 seconds).
+        
         Args:
             text: The text to embed
             heading: Optional heading for context
@@ -347,6 +391,8 @@ class EmbeddingService:
         Returns:
             Embedding array or None if failed/rate limited
         """
+        import signal
+        
         # Preprocess text before embedding (headings + summary)
         processed_text = self._preprocess_for_embedding(text, heading=heading)
         
@@ -362,20 +408,56 @@ class EmbeddingService:
             logger.warning("Rate limit exceeded for embedding generation")
             return None
         
-        # Generate embedding using the client
-        embedding = self._client.generate_embeddings([processed_text])
-        
-        if embedding is not None:
-            # Record the successful request
-            self._rate_limiter.record_request()
-            # Cache the embedding
-            self._embedding_cache[text_hash] = embedding[0]
+        # Generate embedding using the client with timeout
+        embedding = None
+        try:
+            timeout_seconds = getattr(self._config, 'embedding_timeout_seconds', 60)
+            
+            # Set up timeout using signal (Unix only)
+            if hasattr(signal, 'SIGALRM'):
+                def handler(signum, frame):
+                    raise TimeoutError(f"Embedding generation timed out after {timeout_seconds} seconds")
+                
+                old_handler = signal.signal(signal.SIGALRM, handler)
+                signal.alarm(timeout_seconds)
+                try:
+                    embedding = self._client.generate_embeddings([processed_text])
+                finally:
+                    signal.alarm(0)  # Disable alarm
+                    signal.signal(signal.SIGALRM, old_handler)
+            else:
+                # No signal support on Windows
+                embedding = self._client.generate_embeddings([processed_text])
+            
+            if embedding is not None:
+                # Record the successful request
+                self._rate_limiter.record_request()
+                # Cache the embedding
+                self._embedding_cache[text_hash] = embedding[0]
+        except TimeoutError as e:
+            logger.error(f"Timeout: {e}")
+            return None
         
         return embedding[0] if embedding is not None else None
+    
+    @timeout(60, timeout_message="Embedding batch generation timed out after 60 seconds")
+    def _generate_embeddings_with_timeout(self, texts: List[str]) -> Optional[np.ndarray]:
+        """
+        Internal method: Generate embeddings with timeout protection.
+        
+        Args:
+            texts: List of strings to embed
+            
+        Returns:
+            Embeddings array or None if failed/timed out
+        """
+        return self._client.generate_embeddings(texts)
     
     def get_embeddings_batch(self, texts: List[str]) -> Optional[np.ndarray]:
         """
         Generate embeddings for multiple texts with batching.
+        
+        Includes 60-second timeout per batch to prevent hanging.
         
         Args:
             texts: List of strings to embed
@@ -390,14 +472,32 @@ class EmbeddingService:
         all_embeddings = []
         batch_size = getattr(self._config, 'MAX_BATCH_SIZE', 100)
         
+        # Get timeout duration from config (default 60 seconds)
+        timeout_seconds = getattr(self._config, 'embedding_timeout_seconds', 60)
+        
         for i in range(0, len(texts), batch_size):
             batch = texts[i:i + batch_size]
-            embeddings = self._client.generate_embeddings(batch)
-            
-            if embeddings is not None:
-                all_embeddings.append(embeddings)
-            else:
-                logger.warning(f"Failed to generate embeddings for batch {i//batch_size + 1}")
+            try:
+                # Use timeout wrapper for robustness
+                if hasattr(signal_module, 'SIGALRM'):
+                    embeddings = timeout(timeout_seconds, 
+                        f"Embedding batch {i//batch_size + 1} timed out after {timeout_seconds}s")(
+                        lambda: self._client.generate_embeddings(batch)
+                    )()
+                else:
+                    # No signal support (Windows), use direct call
+                    embeddings = self._client.generate_embeddings(batch)
+                
+                if embeddings is not None:
+                    all_embeddings.append(embeddings)
+                else:
+                    logger.warning(f"Failed to generate embeddings for batch {i//batch_size + 1}")
+            except TimeoutError as e:
+                logger.error(f"Timeout generating embeddings: {e}")
+                # Continue with partial results
+            except Exception as e:
+                logger.error(f"Error generating embeddings: {e}")
+                # Continue with partial results
         
         if all_embeddings:
             return np.vstack(all_embeddings)
@@ -412,18 +512,55 @@ class EmbeddingService:
         """Return the number of items in the cache."""
         return len(self._embedding_cache)
     
-    def health_check(self) -> bool:
-        """Check if embedding service is healthy."""
+    def is_healthy(self, force_check: bool = False) -> bool:
+        """
+        Check if embedding service is healthy.
+        
+        Uses cached result for 60 seconds to avoid repeated checks.
+        
+        Args:
+            force_check: If True, bypass cache and perform fresh check
+            
+        Returns:
+            True if service can generate embeddings, False otherwise
+        """
+        import time
+        
+        # Use cached result if available and not forcing fresh check
+        if not force_check and hasattr(self, '_health_check_cache'):
+            cached_result, cached_time = self._health_check_cache
+            if time.time() - cached_time < 60:
+                return cached_result
+        
+        # Perform actual health check
+        is_healthy = False
         try:
             # Check if client is available
             if self._client is None:
-                return False
-            # Try to generate a test embedding
-            test_embedding = self._client.generate_embeddings(["test"])
-            return test_embedding is not None
+                is_healthy = False
+            else:
+                # Try to generate a test embedding with minimal text
+                test_embedding = self._client.generate_embeddings(["health check"])
+                is_healthy = test_embedding is not None and len(test_embedding) > 0
         except Exception as e:
             logger.warning(f"Health check failed: {e}")
-            return False
+            is_healthy = False
+        
+        # Cache the result
+        self._health_check_cache = (is_healthy, time.time())
+        
+        return is_healthy
+    
+    def health_check(self) -> bool:
+        """
+        Check if embedding service is healthy (alias for is_healthy).
+        
+        Note: This method does NOT cache results. Use is_healthy() for cached checks.
+        
+        Returns:
+            True if service can generate embeddings, False otherwise
+        """
+        return self.is_healthy(force_check=True)
     
     @property
     def rate_limiter(self) -> RateLimiter:

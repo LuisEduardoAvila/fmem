@@ -6,6 +6,7 @@ Supports both the new ConfigService class and backward-compatible access.
 """
 
 import os
+import sys
 import configparser
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -268,65 +269,170 @@ class ConfigService:
         }
         
         if os.path.exists(config_file_path):
-            config.read(config_file_path)
+            try:
+                config.read(config_file_path)
+            except configparser.ParsingError as e:
+                print(f"Warning: Config file '{config_file_path}' has syntax errors: {e}", file=sys.stderr)
+                print("Using default configuration values.", file=sys.stderr)
+                config = configparser.ConfigParser()
+            except configparser.Error as e:
+                print(f"Error: Could not read config file '{config_file_path}': {e}", file=sys.stderr)
+                print("Using default configuration values.", file=sys.stderr)
+                config = configparser.ConfigParser()
+            except (IOError, OSError) as e:
+                print(f"Error: Could not access config file '{config_file_path}': {e}", file=sys.stderr)
+                print("Using default configuration values.", file=sys.stderr)
+                config = configparser.ConfigParser()
+            
             if 'settings' in config:
-                data_dir = os.path.expanduser(config.get('settings', 'data_dir', fallback=data_dir))
-                ollama_url = config.get('settings', 'ollama_url', fallback=ollama_url)
+                try:
+                    data_dir = os.path.expanduser(config.get('settings', 'data_dir', fallback=data_dir))
+                except (configparser.NoSectionError, configparser.NoOptionError):
+                    pass
                 
-                # Directory indexing settings
-                additional_dirs = config.get('settings', 'additional_dirs', fallback='')
-                exclude_dirs = config.get('settings', 'exclude_dirs', fallback='')
-                index_files = config.get('settings', 'index_files', fallback='')
-                index_memory_md = config.getboolean('settings', 'index_memory_md', fallback=True)
-                index_daily_files = config.getboolean('settings', 'index_daily_files', fallback=True)
+                try:
+                    ollama_url = config.get('settings', 'ollama_url', fallback=ollama_url)
+                except (configparser.NoSectionError, configparser.NoOptionError):
+                    pass
+                
+                # Directory indexing settings (all with graceful error handling)
+                try:
+                    additional_dirs = config.get('settings', 'additional_dirs', fallback='')
+                except (configparser.NoSectionError, configparser.NoOptionError):
+                    pass
+                    
+                try:
+                    exclude_dirs = config.get('settings', 'exclude_dirs', fallback='')
+                except (configparser.NoSectionError, configparser.NoOptionError):
+                    pass
+                    
+                try:
+                    index_files = config.get('settings', 'index_files', fallback='')
+                except (configparser.NoSectionError, configparser.NoOptionError):
+                    pass
+                
+                # Boolean values with error handling
+                try:
+                    index_memory_md = config.getboolean('settings', 'index_memory_md', fallback=True)
+                except (configparser.NoSectionError, configparser.NoOptionError, ValueError) as e:
+                    if isinstance(e, ValueError):
+                        print(f"Warning: Invalid value for 'index_memory_md' in config, using default (True)", file=sys.stderr)
+                    index_memory_md = True
+                
+                try:
+                    index_daily_files = config.getboolean('settings', 'index_daily_files', fallback=True)
+                except (configparser.NoSectionError, configparser.NoOptionError, ValueError) as e:
+                    if isinstance(e, ValueError):
+                        print(f"Warning: Invalid value for 'index_daily_files' in config, using default (True)", file=sys.stderr)
+                    index_daily_files = True
                 
                 # File extensions to index
-                extensions_str = config.get('settings', 'extensions', fallback='.md, .txt, .py, .json, .yaml, .yml, .csv')
-                valid_extensions = {ext.strip() for ext in extensions_str.split(',') if ext.strip()}
+                try:
+                    extensions_str = config.get('settings', 'extensions', fallback='.md, .txt, .py, .json, .yaml, .yml, .csv')
+                    valid_extensions = {ext.strip() for ext in extensions_str.split(',') if ext.strip()}
+                except (configparser.NoSectionError, configparser.NoOptionError):
+                    pass
                 
-                # Memory quality enhancement settings
-                enable_recency_ranking = config.getboolean('settings', 'enable_recency_ranking', fallback=DEFAULT_ENABLE_RECENCY_RANKING)
-                recency_weight = config.getfloat('settings', 'recency_weight', fallback=DEFAULT_RECENCY_WEIGHT)
-                recency_threshold_days = config.getint('settings', 'recency_threshold_days', fallback=DEFAULT_RECENCY_THRESHOLD_DAYS)
-                min_recency_score = config.getfloat('settings', 'min_recency_score', fallback=DEFAULT_MIN_RECENCY_SCORE)
-                append_only_recency_factor = config.getfloat('settings', 'append_only_recency_factor', fallback=DEFAULT_APPEND_ONLY_RECENCY_FACTOR)
+                # Memory quality enhancement settings with type validation
+                try:
+                    enable_recency_ranking = config.getboolean('settings', 'enable_recency_ranking', fallback=DEFAULT_ENABLE_RECENCY_RANKING)
+                except ValueError:
+                    print(f"Warning: Invalid boolean for 'enable_recency_ranking' in config, using default", file=sys.stderr)
+                    enable_recency_ranking = DEFAULT_ENABLE_RECENCY_RANKING
+                
+                try:
+                    recency_weight = config.getfloat('settings', 'recency_weight', fallback=DEFAULT_RECENCY_WEIGHT)
+                    if not 0.0 <= recency_weight <= 1.0:
+                        print(f"Warning: recency_weight should be between 0.0 and 1.0, got {recency_weight}", file=sys.stderr)
+                        recency_weight = DEFAULT_RECENCY_WEIGHT
+                except ValueError:
+                    print(f"Warning: Invalid float for 'recency_weight' in config, using default", file=sys.stderr)
+                    recency_weight = DEFAULT_RECENCY_WEIGHT
+                
+                try:
+                    recency_threshold_days = config.getint('settings', 'recency_threshold_days', fallback=DEFAULT_RECENCY_THRESHOLD_DAYS)
+                except ValueError:
+                    print(f"Warning: Invalid integer for 'recency_threshold_days' in config, using default", file=sys.stderr)
+                    recency_threshold_days = DEFAULT_RECENCY_THRESHOLD_DAYS
+                
+                try:
+                    min_recency_score = config.getfloat('settings', 'min_recency_score', fallback=DEFAULT_MIN_RECENCY_SCORE)
+                except ValueError:
+                    print(f"Warning: Invalid float for 'min_recency_score' in config, using default", file=sys.stderr)
+                    min_recency_score = DEFAULT_MIN_RECENCY_SCORE
+                
+                try:
+                    append_only_recency_factor = config.getfloat('settings', 'append_only_recency_factor', fallback=DEFAULT_APPEND_ONLY_RECENCY_FACTOR)
+                except ValueError:
+                    print(f"Warning: Invalid float for 'append_only_recency_factor' in config, using default", file=sys.stderr)
+                    append_only_recency_factor = DEFAULT_APPEND_ONLY_RECENCY_FACTOR
+                
                 # Location-based ranking settings
-                enable_location_ranking = config.getboolean('settings', 'enable_location_ranking', fallback=DEFAULT_ENABLE_LOCATION_RANKING)
-                location_weight = config.getfloat('settings', 'location_weight', fallback=DEFAULT_LOCATION_WEIGHT)
+                try:
+                    enable_location_ranking = config.getboolean('settings', 'enable_location_ranking', fallback=DEFAULT_ENABLE_LOCATION_RANKING)
+                except ValueError:
+                    print(f"Warning: Invalid boolean for 'enable_location_ranking' in config, using default", file=sys.stderr)
+                    enable_location_ranking = DEFAULT_ENABLE_LOCATION_RANKING
+                
+                try:
+                    location_weight = config.getfloat('settings', 'location_weight', fallback=DEFAULT_LOCATION_WEIGHT)
+                    if not 0.0 <= location_weight <= 1.0:
+                        print(f"Warning: location_weight should be between 0.0 and 1.0, got {location_weight}", file=sys.stderr)
+                        location_weight = DEFAULT_LOCATION_WEIGHT
+                except ValueError:
+                    print(f"Warning: Invalid float for 'location_weight' in config, using default", file=sys.stderr)
+                    location_weight = DEFAULT_LOCATION_WEIGHT
                 
                 # Chunking settings
-                max_chunk_val = config.getint('settings', 'max_chunk_size', fallback=0)
-                max_chunk_size = max_chunk_val if max_chunk_val > 0 else None
+                try:
+                    max_chunk_val = config.getint('settings', 'max_chunk_size', fallback=0)
+                    max_chunk_size = max_chunk_val if max_chunk_val > 0 else None
+                except ValueError:
+                    print(f"Warning: Invalid integer for 'max_chunk_size' in config, using default", file=sys.stderr)
+                    max_chunk_size = None
                 
                 # Batch limits
-                max_files_per_batch = config.getint('settings', 'max_files_per_batch', fallback=DEFAULT_MAX_FILES_PER_BATCH)
+                try:
+                    max_files_per_batch = config.getint('settings', 'max_files_per_batch', fallback=DEFAULT_MAX_FILES_PER_BATCH)
+                except ValueError:
+                    print(f"Warning: Invalid integer for 'max_files_per_batch' in config, using default", file=sys.stderr)
+                    max_files_per_batch = DEFAULT_MAX_FILES_PER_BATCH
                 
-                # Rate limiting settings (NEW - now configurable)
-                rate_limit_requests = config.getint('settings', 'rate_limit_requests', fallback=600)
-                rate_limit_window_seconds = config.getint('settings', 'rate_limit_window_seconds', fallback=60)
+                # Rate limiting settings
+                try:
+                    rate_limit_requests = config.getint('settings', 'rate_limit_requests', fallback=600)
+                except ValueError:
+                    print(f"Warning: Invalid integer for 'rate_limit_requests' in config, using default", file=sys.stderr)
+                    rate_limit_requests = 600
+                
+                try:
+                    rate_limit_window_seconds = config.getint('settings', 'rate_limit_window_seconds', fallback=60)
+                except ValueError:
+                    print(f"Warning: Invalid integer for 'rate_limit_window_seconds' in config, using default", file=sys.stderr)
+                    rate_limit_window_seconds = 60
                 
                 # Location-based importance weights for directories
-                location_weights = {
-                    # High importance - formal documentation and decisions
-                    'docs': config.getfloat('settings', 'docs_weight', fallback=1.5),
-                    'documentation': config.getfloat('settings', 'documentation_weight', fallback=1.5),
-                    'projects': config.getfloat('settings', 'projects_weight', fallback=1.3),
-                    'decisions': config.getfloat('settings', 'decisions_weight', fallback=1.4),
-                    'formal': config.getfloat('settings', 'formal_weight', fallback=1.4),
-                    # Medium importance - active working files
-                    'work': config.getfloat('settings', 'work_weight', fallback=1.2),
-                    'active': config.getfloat('settings', 'active_weight', fallback=1.2),
-                    'current': config.getfloat('settings', 'current_weight', fallback=1.1),
-                    'notes': config.getfloat('settings', 'notes_weight', fallback=1.0),
-                    'memory': config.getfloat('settings', 'memory_weight', fallback=1.0),
-                    # Lower importance - casual/conversational content
-                    'chats': config.getfloat('settings', 'chats_weight', fallback=0.8),
-                    'conversations': config.getfloat('settings', 'conversations_weight', fallback=0.8),
-                    'daily': config.getfloat('settings', 'daily_weight', fallback=0.9),
-                    'sessions': config.getfloat('settings', 'sessions_weight', fallback=0.9),
-                    # Base importance
-                    'base': config.getfloat('settings', 'base_weight', fallback=1.0),
+                location_weight_keys = {
+                    'docs': 1.5, 'documentation': 1.5, 'projects': 1.3, 'decisions': 1.4,
+                    'formal': 1.4, 'work': 1.2, 'active': 1.2, 'current': 1.1,
+                    'notes': 1.0, 'memory': 1.0, 'chats': 0.8, 'conversations': 0.8,
+                    'daily': 0.9, 'sessions': 0.9, 'base': 1.0
                 }
+                location_weights = {}
+                for key, default_val in location_weight_keys.items():
+                    try:
+                        location_weights[key] = config.getfloat('settings', f'{key}_weight', fallback=default_val)
+                    except ValueError:
+                        print(f"Warning: Invalid float for '{key}_weight' in config, using default", file=sys.stderr)
+                        location_weights[key] = default_val
+                        
+            else:
+                if config.sections():
+                    print(f"Warning: Config file '{config_file_path}' missing [settings] section", file=sys.stderr)
+                    print("Using default configuration values.", file=sys.stderr)
+                else:
+                    print(f"Warning: Config file '{config_file_path}' is empty or has no sections", file=sys.stderr)
+                    print("Using default configuration values.", file=sys.stderr)
         
         # Ensure data directory exists
         os.makedirs(data_dir, exist_ok=True)

@@ -2,6 +2,7 @@
 """Simple CLI for fmem memory search."""
 
 import argparse
+import json
 import sys
 from pathlib import Path
 
@@ -31,6 +32,22 @@ def cmd_index(args):
     """Index a directory of files."""
     try:
         memory = MemoryRetrieval()
+        
+        # Health check: verify embedding service is operational
+        embedding_service = memory._embedding_service if hasattr(memory, '_embedding_service') else None
+        if embedding_service is not None:
+            if hasattr(embedding_service, 'is_healthy') and callable(embedding_service.is_healthy):
+                if not embedding_service.is_healthy():
+                    error_msg = (
+                        "Error: Embedding service is not healthy.\n"
+                        "Please check that:\n"
+                        "  1. Ollama is running at the configured URL\n"
+                        "  2. The embedding model is available\n"
+                        "  3. The Ollama server is accessible\n"
+                        "\nRun 'fmem status' for more diagnostics."
+                    )
+                    print(error_msg, file=sys.stderr)
+                    sys.exit(1)
         
         if args.directory:
             # Single directory mode
@@ -164,22 +181,121 @@ def cmd_index(args):
 
 def cmd_search(args):
     """Search the memory index."""
+    # Redirect fmem logging to stderr when JSON output is requested
+    # so logs don't contaminate JSON output on stdout
+    if args.format == "json":
+        import logging
+        fmem_logger = logging.getLogger("fmem")
+        for handler in fmem_logger.handlers[:]:
+            if isinstance(handler, logging.StreamHandler) and handler.stream is sys.stdout:
+                handler.stream = sys.stderr
+    
     try:
         memory = MemoryRetrieval()
+        
+        # Health check: verify embedding service is operational
+        embedding_service = None
+        if hasattr(memory, '_embedding_service') and memory._embedding_service is not None:
+            embedding_service = memory._embedding_service
+        elif hasattr(memory, '_embedding_client') and memory._embedding_client is not None:
+            embedding_service = memory._embedding_client
+        
+        if embedding_service is not None:
+            # Use is_healthy() method with caching (60 second TTL)
+            if hasattr(embedding_service, 'is_healthy') and callable(embedding_service.is_healthy):
+                if not embedding_service.is_healthy():
+                    error_msg = (
+                        "Error: Embedding service is not healthy.\n"
+                        "Please check that:\n"
+                        "  1. Ollama is running at the configured URL\n"
+                        "  2. The embedding model is available\n"
+                        "  3. The Ollama server is accessible\n"
+                        "\nRun 'fmem status' for more diagnostics."
+                    )
+                    print(error_msg, file=sys.stderr)
+                    sys.exit(1)
         
         results = memory.search(args.query, top_k=args.top_k)
         
         if not results:
-            print("No results found")
+            if args.format == "json":
+                print("[]")
+            else:
+                print("No results found")
             return
         
-        for i, r in enumerate(results, 1):
-            print(f"\n{i}. Score: {r['score']:.3f}")
-            source = r.get('source', r.get('filepath', 'unknown'))
-            print(f"   Source: {source}")
-            content = r.get('content', r.get('chunk', r.get('summary', '')))
-            preview = content[:200] + "..." if len(content) > 200 else content
-            print(f"   {preview}")
+        # Filter by minimum score if specified
+        if args.min_score > 0:
+            results = [r for r in results if r['score'] >= args.min_score]
+        
+        if args.format == "json":
+            # Calculate content limits per result
+            result_count = len(results)
+            json_results = []
+            
+            # Get minimum score threshold for scaling
+            min_score = args.min_score if args.min_score > 0 else 0.3
+            
+            for r in results:
+                content = r.get('content', r.get('processed_content', ''))
+                score = r.get('score', 0.0)
+                
+                # Determine content limit
+                max_content = args.max_content
+                if max_content == 0:
+                    # Adaptive mode: score-based truncation
+                    # Mirrors fmem_integration.format_results logic
+                    if args.content_mode == "adaptive":
+                        if result_count == 1:
+                            base_limit = 400
+                        elif result_count <= 3:
+                            base_limit = 250
+                        else:
+                            base_limit = 150
+                        # Scale limit by score: high relevance gets more content
+                        # Formula: scale from min_score to 1.0, with 0.4 minimum
+                        if score > min_score:
+                            score_factor = 0.4 + 0.6 * ((score - min_score) / (1.0 - min_score))
+                        else:
+                            score_factor = 0.4
+                        score_factor = min(1.0, score_factor)
+                        content_limit = int(base_limit * score_factor)
+                    else:
+                        content_limit = 250  # default for fixed mode with no explicit limit
+                else:
+                    # Explicit limit from user
+                    if args.content_mode == "adaptive":
+                        # Scale user's limit by score from min_score to 1.0
+                        if score > min_score:
+                            score_factor = 0.4 + 0.6 * ((score - min_score) / (1.0 - min_score))
+                        else:
+                            score_factor = 0.4
+                        score_factor = min(1.0, score_factor)
+                        content_limit = int(max_content * score_factor)
+                    else:
+                        content_limit = max_content
+                
+                # Truncate content
+                if len(content) > content_limit:
+                    content = content[:content_limit].rstrip() + "..."
+                
+                json_results.append({
+                    "filepath": r.get('filepath', ''),
+                    "score": r.get('score', 0.0),
+                    "content": content,
+                    "heading": r.get('heading', ''),
+                    "source": r.get('filepath', '')  # backward compat
+                })
+            print(json.dumps(json_results, ensure_ascii=False))
+        else:
+            # Text format (existing behavior)
+            for i, r in enumerate(results, 1):
+                print(f"\n{i}. Score: {r['score']:.3f}")
+                source = r.get('source', r.get('filepath', 'unknown'))
+                print(f"   Source: {source}")
+                content = r.get('content', r.get('chunk', r.get('summary', '')))
+                preview = content[:200] + "..." if len(content) > 200 else content
+                print(f"   {preview}")
             
     except Exception as e:
         print(f"Error: {e}", file=sys.stderr)
@@ -226,6 +342,14 @@ def main():
     search_parser = subparsers.add_parser("search", help="Search memory")
     search_parser.add_argument("query", help="Search query")
     search_parser.add_argument("-k", "--top-k", type=int, default=5, help="Number of results")
+    search_parser.add_argument("--format", choices=["text", "json"], default="text",
+                               help="Output format: text (human-readable) or json (structured)")
+    search_parser.add_argument("--min-score", type=float, default=0.0,
+                               help="Minimum relevance score (0.0-1.0) to include in results")
+    search_parser.add_argument("--max-content", type=int, default=0,
+                               help="Max chars per result in JSON output (0=adaptive based on score, see --content-mode)")
+    search_parser.add_argument("--content-mode", choices=["adaptive", "fixed"], default="adaptive",
+                               help="Content truncation mode: adaptive (high scores get more chars) or fixed (uniform limit)")
     search_parser.set_defaults(func=cmd_search)
     
     # Status command

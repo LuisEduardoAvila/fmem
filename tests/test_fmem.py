@@ -22,14 +22,21 @@ class TestFmemCore(unittest.TestCase):
         """Set up test environment."""
         # Create temporary directory for test data
         self.test_dir = tempfile.mkdtemp()
+        # Use environment variable to set custom data_dir
+        self._original_env = os.environ.get('FMEM_DATA_DIR')
+        os.environ['FMEM_DATA_DIR'] = self.test_dir
+        # Import ConfigService (aliased as ConfigManager in __init__.py)
         self.config = ConfigManager()
-        self.config.data_dir = self.test_dir
         
     def tearDown(self):
         """Clean up test environment."""
-        # Remove temporary directory
+        # Restore original environment
         import shutil
         shutil.rmtree(self.test_dir, ignore_errors=True)
+        if self._original_env is not None:
+            os.environ['FMEM_DATA_DIR'] = self._original_env
+        elif 'FMEM_DATA_DIR' in os.environ:
+            del os.environ['FMEM_DATA_DIR']
     
     def test_config_manager(self):
         """Test configuration manager."""
@@ -74,7 +81,7 @@ class TestFmemIntegration(unittest.TestCase):
         
     def test_should_search(self):
         """Test search trigger logic."""
-        from fmem_integration import should_search
+        from fmem.fmem_integration import should_search
         
         # Messages that should trigger search
         self.assertTrue(should_search("What were my preferences?"))
@@ -87,7 +94,7 @@ class TestFmemIntegration(unittest.TestCase):
         
     def test_extract_search_query(self):
         """Test search query extraction."""
-        from fmem_integration import extract_search_query
+        from fmem.fmem_integration import extract_search_query
         
         # Test query extraction
         query = extract_search_query("What were my preferences for the agent setup?")
