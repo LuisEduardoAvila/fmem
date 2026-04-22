@@ -1,0 +1,73 @@
+{
+  "id": "fmem-auto",
+  "name": "fmem Auto-Recall",
+  "description": "Automatically recalls relevant memories from fmem based on conversation triggers",
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "enabled": {
+        "type": "boolean",
+        "default": true,
+        "description": "Enable automatic memory recall"
+      },
+      "triggers": {
+        "type": "object",
+        "default": {},
+        "description": "Trigger patterns for memory search",
+        "properties": {
+          "explicit": {
+            "type": "array",
+            "default": ["look up", "find", "search", "recall", "remember", "what did", "when did", "show me", "tell me about"],
+            "description": "Explicit recall triggers",
+            "items": { "type": "string" }
+          },
+          "recency": {
+            "type": "array",
+            "default": ["last week", "last month", "last session", "recently", "yesterday", "earlier", "before"],
+            "description": "Recency-based triggers",
+            "items": { "type": "string" }
+          },
+          "location": {
+            "type": "array",
+            "default": ["in docs", "in projects", "in notes", "in memory", "under"],
+            "description": "Location/path-based triggers",
+            "items": { "type": "string" }
+          },
+          "context": {
+            "type": "array",
+            "default": ["my preferences", "my settings", "my goals", "my projects"],
+            "description": "Contextual triggers",
+            "items": { "type": "string" }
+          }
+        }
+      },
+      "topK": {
+        "type": "integer",
+        "default": 3,
+        "minimum": 1,
+        "maximum": 20,
+        "description": "Number of memory results to return"
+      },
+      "minScore": {
+        "type": "number",
+        "default": 0.25,
+        "minimum": 0,
+        "maximum": 1,
+        "description": "Minimum relevance score threshold (0.0-1.0)"
+      },
+      "timeoutMs": {
+        "type": "integer",
+        "default": 5000,
+        "minimum": 100,
+        "maximum": 30000,
+        "description": "Timeout for fmem search in milliseconds"
+      },
+      "gracefulDegradation": {
+        "type": "boolean",
+        "default": true,
+        "description": "Continue without memory if fmem fails"
+      }
+    }
+  }
+}

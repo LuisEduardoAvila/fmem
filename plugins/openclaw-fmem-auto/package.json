@@ -1,0 +1,32 @@
+{
+  "name": "@smartspud/openclaw-fmem-auto",
+  "version": "1.0.0",
+  "description": "Automatic memory recall plugin for OpenClaw using fmem",
+  "type": "module",
+  "main": "./src/index.ts",
+  "openclaw": {
+    "extensions": ["./src/index.ts"],
+    "compat": {
+      "pluginApi": ">=2026.3.24-beta.2",
+      "minGatewayVersion": "2026.3.24-beta.2"
+    },
+    "build": {
+      "openclawVersion": "2026.3.24-beta.2",
+      "pluginSdkVersion": "2026.3.24-beta.2"
+    }
+  },
+  "keywords": ["openclaw", "plugin", "memory", "fmem"],
+  "author": "smartspud",
+  "license": "MIT",
+  "dependencies": {
+    "@openclaw/plugin-sdk": "npm:openclaw@2026.4.15"
+  },
+  "devDependencies": {
+    "typescript": "^5.0.0",
+    "@types/node": "^20.0.0"
+  },
+  "scripts": {
+    "build": "tsc --noEmit",
+    "typecheck": "tsc --noEmit"
+  }
+}
