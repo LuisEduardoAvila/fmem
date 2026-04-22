@@ -85,8 +85,26 @@ export function shouldSearch(
   return false;
 }
 
+/** Trigger words to strip from search queries */
+const TRIGGER_WORDS = [
+  'look', 'looked', 'looking', 'lookup', 'looked',
+  'find', 'found', 'finding', 'finds',
+  'search', 'searched', 'searching', 'searches',
+  'recall', 'recalled', 'recalling', 'recalls',
+  'remember', 'remembered', 'remembering', 'remembers',
+  'show', 'showed', 'showing', 'shows',
+  'tell', 'told', 'telling', 'tells',
+  'what', 'when', 'where', 'which', 'who', 'whom', 'whose',
+  'did', 'does', 'would', 'could', 'should',
+  'about', 'me', 'my', 'our', 'the', 'a', 'an',
+];
+
+/** Trigger word set for O(1) lookup */
+const TRIGGER_WORD_SET = new Set(TRIGGER_WORDS.map(w => w.toLowerCase()));
+
 /**
  * Extract relevant search terms from message.
+ * Strips trigger words that dilute semantic matching.
  * 
  * @param message - User message text
  * @returns Extracted search query
@@ -99,8 +117,12 @@ export function extractSearchQuery(message: string): string {
   // Extract key content words (3+ chars)
   const words = cleaned.match(/\b[a-z]{3,}\b/gi) || [];
   
-  // Take meaningful words (limit to 10)
-  const query = words.slice(0, 10).join(' ');
+  // Filter out trigger words and take meaningful words (limit to 10)
+  const filtered = words
+    .filter(w => !TRIGGER_WORD_SET.has(w.toLowerCase()))
+    .slice(0, 10);
+  
+  const query = filtered.join(' ');
   
   return query || message.slice(0, 100);
 }
