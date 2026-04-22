@@ -2,11 +2,11 @@
 
 **Contextual Memory for Natural Conversations**
 
-Version: 3.2.0  
+Version: 3.3.0  
 Status: v1 Stable  
 License: MIT
 
-**Latest:** Hybrid chunking with table-aware splitting (v3.2.0, Feb 2026)
+**Latest:** OpenClaw plugin for automatic memory injection (v3.3.0, Apr 2026)
 
 ---
 
@@ -14,11 +14,14 @@ License: MIT
 
 - [Overview](#overview)
 - [Quick Start](#quick-start)
-- [What is fmem vs OpenClaw?](#what-is-fmem-vs-openclaw)
-- [Architecture](#-how-fmem-works)
+- [Installation](#installation)
 - [CLI Usage](#cli-usage)
+- [OpenClaw Plugin](#-openclaw-plugin-fmem-auto)
 - [Configuration](#configuration)
-- [Integration Options](#integration-options)
+- [Architecture](#-architecture)
+- [Context Injection Format](#-context-injection-format)
+- [Content Structure Guidelines](#-content-structure-guidelines-for-fmem)
+- [Alternatives](#alternatives)
 - [Changelog](#changelog)
 
 ---
@@ -34,13 +37,20 @@ fmem is a local-first memory system that makes AI conversations feel natural and
 - **Token-efficient retrieval** — Returns relevant chunks vs full files
 - **Natural conversation flow** — References that feel contextual, not robotic
 
-**v3.2.0 Update: Hybrid Chunking**
+**v3.3.0: OpenClaw Plugin**
 
-New table-aware chunking eliminates LLM-based workarounds:
+Memory is now automatically injected into every OpenClaw conversation via the `fmem-auto` plugin:
+- **Zero-config recall** — No AGENTS.md triggers needed
+- **Hook-based injection** — Runs at `before_prompt_build`, before the LLM sees your message
+- **Smart triggers** — Explicit, recency, location, and context pattern matching
+- **Configurable** — topK, minScore, timeout, and enable/disable per channel
+
+**v3.2.0: Hybrid Chunking**
+
+Table-aware chunking eliminates LLM-based workarounds:
 - **Tables treated as atomic units** — No more mid-row splits
 - **Zero LLM calls** — Pure Python regex parsing
 - **Faster indexing** — Python regex parsing vs previous LLM-based extraction
-- **Inspired by** [md2chunks](https://github.com/verloop/md2chunks), [advanced-chunker](https://github.com/rango-ramesh/advanced-chunker)
 
 See [docs/CHUNKING_STRATEGY.md](./docs/CHUNKING_STRATEGY.md) for full details.
 
@@ -48,18 +58,17 @@ See [docs/CHUNKING_STRATEGY.md](./docs/CHUNKING_STRATEGY.md) for full details.
 
 ```mermaid
 graph LR
-    A[User Message] --> B[Trigger Detection]
-    B -->|Yes| C[fmem Integration]
-    B -->|No| D[Normal Response]
-    C --> E[Document Indexing]
-    E --> F[Multi-Factor Search]
-    F --> G[Contextual Response]
-    G --> H[User]
-    
-    subgraph fmem System
-        E --> I[Chunk Indexing]
-        I --> J[Vector Database]
-        J --> K[Multi-Factor Scoring]
+    A[User Message] --> B[fmem-auto Plugin]
+    B --> C[Trigger Detection]
+    C -->|Match| D[Semantic Search]
+    C -->|No Match| E[Normal Response]
+    D --> F[Multi-Factor Ranking]
+    F --> G[Context Injection]
+    G --> H[LLM responds with memory]
+
+    subgraph fmem Core
+        D --> I[FAISS Index]
+        I --> J[Scored Chunks]
     end
 ```
 
@@ -108,6 +117,11 @@ fmem index
 fmem search "your query"
 ```
 
+**Enable OpenClaw plugin** (see [Plugin section](#-openclaw-plugin-fmem-auto) below):
+```bash
+openclaw plugin install fmem-auto
+```
+
 ---
 
 ## What is fmem vs OpenClaw?
@@ -123,117 +137,228 @@ You ↔ OpenClaw (AI Assistant) ↔ fmem (Memory System)
 
 **OpenClaw does:**
 - Manages conversations and agent behavior
-- Makes decisions about when to use memory
-- Generates responses based on retrieved context
-- Provides CLI interface for standalone operations
+- Processes messages and generates responses
+- Loads plugins at lifecycle hooks
 
 **fmem does:**
 - Stores and indexes your memory files (documents, notes, etc.)
 - Performs semantic search across your content
-- Provides auto_recall functionality for OpenClaw integration
+- Injects relevant context before the LLM processes each message (via plugin)
 - Maintains FAISS indexes for fast similarity search
 
 ---
 
-## Project Structure
+## Installation
 
+### pip (CLI + Library)
+
+```bash
+pip install fmem
 ```
-projects/fmem/
-├── src/                    # Core source code
-├── docs/                   # Documentation
-├── tests/                  # Test suite
-├── config/                 # Configuration templates
-├── mcp-wrapper/           # MCP server documentation (planned)
-└── README.md              # This file
+
+### OpenClaw Plugin
+
+```bash
+openclaw plugin install fmem-auto
 ```
+
+Or manually add to your OpenClaw config (`~/.openclaw/config.yaml`):
+
+```yaml
+plugins:
+  entries:
+    - name: fmem-auto
+      version: "1.0.0"
+```
+
+See the [Plugin section](#-openclaw-plugin-fmem-auto) for full configuration.
 
 ---
 
-## Current Implementation
+## CLI Usage
 
-**Repository:** `github.com/LuisEduardoAvila/fmem`
+fmem provides a command-line interface for indexing, searching, and checking status.
 
-### Architecture
+### Index Documents
+
+```bash
+# Auto-index configured directories (from fmem.conf)
+fmem index
+
+# Index a specific directory
+fmem index /path/to/documents
+
+# Index a single file
+fmem index /path/to/file.md
+```
+
+### Search
+
+```bash
+# Basic search
+fmem search "your query"
+
+# Control number of results
+fmem search "your query" -k 5
+
+# Output format
+fmem search "your query" --format json
+
+# Filter by minimum score
+fmem search "your query" --min-score 0.5
+
+# Limit content length
+fmem search "your query" --max-content 200
+
+# Content mode (chunk vs full)
+fmem search "your query" --content-mode chunk
+```
+
+### Status
+
+```bash
+fmem status
+```
+
+Shows index stats: total chunks, indexed files, index size, last indexed.
+
+---
+
+## 🧩 OpenClaw Plugin: fmem-auto
+
+**v3.3.0** introduces the `fmem-auto` plugin — automatic memory injection for every OpenClaw conversation. No AGENTS.md trigger setup required.
+
+### How It Works
+
+The plugin hooks into OpenClaw's `before_prompt_build` lifecycle. Before the LLM processes your message, fmem:
+
+1. **Detects triggers** — Checks if the message matches explicit, recency, location, or context patterns
+2. **Searches memory** — Runs semantic search with multi-factor ranking
+3. **Injects context** — Adds relevant memories to the prompt context
+
+```
+User Message → before_prompt_build hook → fmem search → inject context → LLM sees message + memory
+```
+
+The LLM responds as if it "just knows" — no explicit retrieval step, no `auto_recall()` import, no AGENTS.md triggers.
+
+### Plugin Configuration
+
+Add to your OpenClaw config (`~/.openclaw/config.yaml`):
+
+```yaml
+plugins:
+  entries:
+    - name: fmem-auto
+      version: "1.0.0"
+      config:
+        enabled: true
+        topK: 3
+        minScore: 0.25
+        timeoutMs: 5000
+```
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| `enabled` | boolean | `true` | Enable or disable the plugin |
+| `topK` | integer | `3` | Number of memory chunks to retrieve |
+| `minScore` | float | `0.25` | Minimum relevance score (0.0–1.0) to include |
+| `timeoutMs` | integer | `5000` | Maximum time (ms) for search before skipping |
+
+### Trigger Types
+
+The plugin uses multiple trigger strategies to decide when to search:
+
+| Type | Description | Examples |
+|------|-------------|----------|
+| **Explicit** | User directly asks for memory | "remember", "recall", "what about" |
+| **Recency** | User references time | "last week", "previous", "recently", "before" |
+| **Location** | User references a place or category | "fitness", "movies", "projects", "work" |
+| **Context** | Pattern matches personal context | "my goals", "my preferences", "we discussed" |
+
+### Comparison: Plugin vs AGENTS.md Integration
+
+| Aspect | AGENTS.md Integration | fmem-auto Plugin |
+|--------|-----------------------|------------------|
+| **When memory appears** | After OpenClaw decides to call fmem | Before OpenClaw processes message |
+| **Who searches?** | OpenClaw (must detect triggers) | Plugin (automatic, transparent) |
+| **Setup required** | Add triggers to AGENTS.md | Install plugin, configure |
+| **Does OpenClaw "just know"?** | ❌ No, actively retrieves | ✅ Yes, context is pre-injected |
+| **Misses context?** | Possible if no trigger match | Catches all matching patterns |
+| **Speed** | Fast (selective) | Slightly slower (every message) |
+| **Status** | ✅ Still supported | ✅ Recommended (v3.3.0+) |
+
+### Migration from AGENTS.md
+
+If you previously set up AGENTS.md triggers:
+
+1. Install the plugin: `openclaw plugin install fmem-auto`
+2. The plugin takes priority over AGENTS.md triggers
+3. You can remove the "Memory Recall with fmem" section from AGENTS.md (optional)
+4. Both can coexist — plugin runs first, AGENTS.md triggers serve as fallback
+
+---
+
+## 🏗️ Architecture
+
+### System Overview
 
 ```mermaid
 graph TB
-    subgraph CLI Operations
-        A[fmem index] --> B[Auto-index]
-        C[fmem search] --> D[Find memory]
-        E[fmem status] --> F[Check health]
+    subgraph OpenClaw
+        A[User Message] --> B[fmem-auto Plugin]
+        B -->|before_prompt_build| C[Trigger Detection]
+        C -->|Match| D[fmem Search]
+        C -->|No Match| E[Continue without memory]
+        D --> F[Context Injection]
+        F --> G[LLM Prompt + Memory]
     end
-    
-    subgraph Integration Operations
-        G[User Message] --> H[Trigger Detection]
-        H -->|Yes| I[Import auto_recall]
-        I --> J[Search Memory]
-        J --> K[Format Results]
-        K --> L[Contextual Response]
+
+    subgraph fmem Core
+        H[DocumentManager] --> I[Hybrid Chunking]
+        I --> J[FAISS Index]
+        K[MemoryRetrieval] --> J
+        L[Multi-Factor Scoring] --> M[Ranked Results]
     end
-    
-    subgraph fmem Package
-        M[MemoryRetrieval] --> N[FAISS Index]
-        O[Chunk Indexing] --> N
-        P[Multi-Factor Scoring] --> Q[Results]
-    end
+
+    D --> K
+    K --> L
+    M --> F
 ```
 
 ### Components
 
-| Component | Purpose | Location | Usage |
-|-----------|---------|----------|-------|
-| `MemoryRetrieval` | Core search class (composition root) | `src/fmem/memory_retrieval.py` | Both CLI & OpenClaw Integration |
-| `auto_recall()` | OpenClaw integration function | `src/fmem/fmem_integration.py` | Called by OpenClaw: `from fmem import auto_recall` |
-| `cli.py` | Command-line interface | `src/fmem/cli.py` | Standalone CLI: `fmem index`, `fmem search` |
-| `ConfigService` | Configuration handling | `src/fmem/config.py` | Used by both CLI and OpenClaw |
-| `chunking.py` | Hybrid chunking (table-aware + headings) | `src/fmem/chunking.py` | Used by DocumentManager |
+| Component | Purpose | Location |
+|-----------|---------|----------|
+| `MemoryRetrieval` | Core search class (composition root) | `src/fmem/memory_retrieval.py` |
+| `fmem-auto` | OpenClaw plugin for automatic injection | Plugin entry |
+| `auto_recall()` | Legacy OpenClaw integration function | `src/fmem/fmem_integration.py` |
+| `cli.py` | Command-line interface | `src/fmem/cli.py` |
+| `ConfigService` | Configuration handling | `src/fmem/config.py` |
+| `chunking.py` | Hybrid chunking (table-aware + headings) | `src/fmem/chunking.py` |
 
----
+### Core Stack
 
-## 🏗️ How fmem Works (Architecture)
+| Layer | Technology | Details |
+|-------|-----------|---------|
+| **Embedding** | sentence-transformers/all-MiniLM-L6-v2 | 384 dimensions, 512 token context |
+| **Chunking** | Adaptive hybrid | 800 chars, table-aware + heading splits |
+| **Index** | FAISS | Vector similarity with metadata |
+| **Ranking** | Multi-factor | Semantic (50%) + Recency (30%) + Location (20%) |
 
-### Current Implementation: AGENTS.md Integration
+### Current vs Legacy Integration
 
-**The flow is:**
-
+**Current (Plugin):**
 ```
-You → Message → OpenClaw → should_search() check → fmem Integration
-                                                      ↓
-                                            True: auto_recall() called
-                                                      ↓
-                                            Results added to OpenClaw context
-                                                      ↓
-                                            OpenClaw responds with memory
-```
-
-**Key Characteristic:** **OpenClaw decides when to search.** Your message triggers the check, but OpenClaw actively calls fmem only when patterns match.
-
-### Future: Automatic Hook - Planned
-
-**Different approach:** OpenClaw would search **before** processing your message:
-
-```
-You → Message → OpenClaw Auto-Searches fmem → Injects results
-                                              ↓
-                              OpenClaw receives message + context
-                                              ↓
-                              OpenClaw responds with "just knowing"
+User → Message → before_prompt_build hook → fmem search → inject context → LLM responds with memory
 ```
 
-**Key Difference:** **Automatic injection.** Every message gets searched, results injected if relevant. OpenClaw doesn't decide—it's automatic.
+**Legacy (AGENTS.md):**
+```
+User → Message → OpenClaw reads AGENTS.md → detects trigger → auto_recall() → responds with memory
+```
 
-### Comparison
-
-| Aspect | Current | Future Planned |
-|--------|--------|----------------|
-| **Who searches?** | OpenClaw searches after seeing message | OpenClaw searches before seeing message |
-| **When does memory appear?** | After OpenClaw decides to call fmem | Before OpenClaw processes message |
-| **Does OpenClaw "just know"?** | ❌ No, actively retrieves | ✅ Yes, it's in context |
-| **Misses context?** | Possible if no trigger | Catches everything |
-| **Speed** | Fast | Slightly slower |
-| **Implementation** | ✅ Live now | 📋 Planned |
-
-**Bottom Line:** Current implementation requires OpenClaw to **actively retrieve** when triggers match. Future would make memory **automatically present** in every conversation.
+The plugin is recommended for all new setups. AGENTS.md integration remains supported for backward compatibility.
 
 ---
 
@@ -265,54 +390,29 @@ I found {N} relevant memories for this conversation:
 ### Why This Format Matters for the LLM
 
 **1. XML Tags (`<retrieved_memory>`)**
-- **Rationale:** Creates clear semantic boundaries between retrieved context and conversation history
-- **Benefit:** LLM can distinguish "this is external knowledge" vs "this is current conversation"
-- **Prevents:** Hallucinations where the LLM confuses retrieved facts with user statements
+- Creates clear semantic boundaries between retrieved context and conversation history
+- Prevents hallucinations where the LLM confuses retrieved facts with user statements
 
 **2. Relevance Ranking (`[1] Most relevant`, `[2] Also relevant`)**
-- **Rationale:** LLMs process information sequentially; early items get more attention
-- **Benefit:** Ensures the most important context appears first in the LLM's context window
-- **Impact:** Higher-quality responses when token limits are tight
+- LLMs process information sequentially; early items get more attention
+- Ensures the most important context appears first
 
 **3. Source Attribution (`Source: {filepath}`)**
-- **Rationale:** LLMs perform better when they understand information provenance
-- **Benefit:** Enables the LLM to cite sources naturally ("According to your notes from...")
-- **Trust:** Helps LLM assess confidence (personal notes vs external docs)
+- Enables the LLM to cite sources naturally ("According to your notes from...")
+- Helps LLM assess confidence (personal notes vs external docs)
 
 **4. Document Type + Location Context**
-- **Rationale:** Same content type means different things based on where it lives
-- **Examples:**
-  - `"Memory from memory/2026-02-23.md"` → Personal reflection
-  - `"Decision from decisions/backup.md"` → Formal choice you made
-  - `"Project notes from projects/BingeWatching/"` → Active project context
-- **Benefit:** LLM adjusts tone and confidence based on document type
+- Same content means different things based on where it lives
+- `"Memory from memory/2026-02-23.md"` → Personal reflection
+- `"Decision from decisions/backup.md"` → Formal choice
 
 **5. Heading Context (`Under '{heading}':`)**
-- **Rationale:** Preserves document structure that was lost during chunking
-- **Benefit:** LLM understands "this is from the Architecture section" not just random text
-- **Navigation:** Helps LLM locate full context if needed
+- Preserves document structure that was lost during chunking
+- Helps LLM locate full context if needed
 
-**6. Combined Summaries (Pre-computed + Dynamic Stats)**
-- **Pre-computed:** File-level summary captured during indexing (fast, holistic)
-- **Dynamic:** Stats extracted from matching chunks (specific, query-relevant)
-- **Example:** `BingeWatching project tracking | Relevant stats: 41 series tracked, 8.7 average rating`
-- **Benefit:** LLM gets both "what is this file about" and "why does it match this query"
-
-**7. Relevance Scores (`[relevance: 85%]`))**
-- **Rationale:** Gives the LLM confidence calibration
-- **Benefit:** Helps LLM weight information appropriately (90% = very likely relevant, 40% = possibly relevant)
-- **Prevents:** Over-confident responses based on weak matches
-
-### Formatting Impact on Response Quality
-
-| Field | Why It Matters | Impact |
-|-------|----------------|--------|
-| **XML boundaries** | Separates memory from conversation | Reduces hallucinations |
-| **Ranking** | Priority ordering | Most important context gets attention |
-| **Source paths** | Citation & provenance | Natural source attribution |
-| **Doc type** | Context interpretation | Appropriate tone/weight |
-| **Headings** | Structural context | Better understanding |
-| **Scores** | Confidence calibration | Appropriate certainty |
+**6. Relevance Scores (`[relevance: 85%]`)**
+- Gives the LLM confidence calibration
+- Helps weight information appropriately (90% = very likely relevant, 40% = possibly relevant)
 
 ### Example Injection
 
@@ -344,48 +444,6 @@ I found 2 relevant memories for this conversation:
 
 ---
 
-## 📝 Key Triggers
-
-**Automatic recall activates on:**
-
-| Type | Examples |
-|------|----------|
-| **Explicit** | "remember", "recall", "what about" |
-| **Context** | "fitness", "movies", "projects", "work" |
-| **Time** | "last week", "previous", "recently", "before" |
-| **Personal** | "my goals", "my preferences", "my schedule", "we discussed" |
-
-### 🔧 Integration Setup
-
-**Required: Add this to AGENTS.md**
-
-```markdown
-## Memory Recall with fmem
-
-When the user mentions any of these triggers, OpenClaw automatically recalls relevant information from fmem:
-
-### Trigger Patterns (check with should_search())
-- "remember", "recall", "what about", "last week", "previous", "before"
-- "my projects", "my goals", "we discussed", "you mentioned"
-- "fitness", "movies", "work", "travel" (personal context topics)
-
-### Automatic Recall Procedure
-When triggers detected:
-1. OpenClaw imports: `from fmem import auto_recall, format_results`
-2. OpenClaw calls: `results = auto_recall(user_message, top_k=3, chunk_mode='chunk')`
-3. OpenClaw formats: `context = format_results(results, max_preview=150)`
-4. OpenClaw injects: Add context to your response naturally
-
-### Important Notes
-- fmem is LOCAL (privacy-safe, no external APIs)
-- Check deduplication (don't recall same file within 5 minutes)
-- Respect token limits (keep context under 500 tokens)
-- Never mention technical details (<retrieved_memory> tags, scores)
-- Present information naturally: "Earlier you mentioned..."
-```
-
-**Note:** This content needs to be added to your AGENTS.md file for full integration.
-
 ## 📝 Content Structure Guidelines for fmem
 
 For optimal fmem search performance across all indexed content, structure your files with ## headings:
@@ -399,9 +457,6 @@ I worked on fmem documentation today. The indexing process is really interesting
 
 ## System Fixes  
 I fixed the cron job to run silently every 3 hours. The incremental updates work well.
-
-## User Questions
-The user asked great questions about compatibility and headings.
 ```
 
 **Notes (`notes/`):**
@@ -411,9 +466,6 @@ fmem documentation improvements completed...
 
 ## System Architecture  
 Cron job integration working well...
-
-## Research Findings  
-Memory search vs fmem analysis complete...
 ```
 
 **Decisions (`decisions/`):**
@@ -425,25 +477,6 @@ Memory search vs fmem analysis complete...
 ## Project Roadmap  
 - Phase 1: Core stability ✅
 - Phase 2: Enhanced features 🔄
-
-## Budget Decisions
-- Approved fmem development time
-- Resources allocated for testing...
-```
-
-**Project READMEs (`projects/*/README.md`):**
-```markdown
-## Overview
-fmem provides contextual memory for AI conversations...
-
-## Installation
-Setup with pip install and configuration...
-
-## Usage Examples
-Command-line usage and integration examples...
-
-## Development Roadmap
-Current status and future plans...
 ```
 
 ### Why This Matters
@@ -451,13 +484,6 @@ Current status and future plans...
 - **More targeted results**: Search queries return relevant sections, not entire files
 - **Improved accuracy**: Semantic search works better with smaller, focused chunks
 - **Better performance**: Less content to embed = faster indexing
-
-### When to Add Headings
-- **Daily files**: Add ## sections for different topics/projects
-- **Notes**: Structure by project or subject area
-- **Decisions**: Separate by decision type or timeframe
-- **Projects**: Use ## for different phases or features
-- **Documentation**: Organize by sections (Overview, Installation, Usage, etc.)
 
 ### Applies To All fmem-Indexed Content:
 - ✅ `memory/` - Daily memory logs
@@ -467,28 +493,24 @@ Current status and future plans...
 - ✅ `projects/*/README.md` - Project README files
 - ✅ Any custom directories in `additional_dirs`
 
-**Note**: Files without ## headings will be treated as single chunks, reducing search effectiveness across all fmem-indexed content.
+**Note**: Files without ## headings will be treated as single chunks, reducing search effectiveness.
 
 ---
 
 ## Chunking Strategy
 
-**fmem v3.2.0** uses hybrid chunking with automatic table detection:
+**fmem v3.2.0+** uses hybrid chunking with automatic table detection:
 - **Table-aware:** Tables treated as atomic units (never split mid-row)
 - **Heading-based:** Standard ## heading splits for non-table content
 - **Smart routing:** Auto-detects tables and uses appropriate strategy
 
-**v3.1.0** used fixed-size chunking (800 chars) based on embedding model token limits.
-
 ### The Constraint
 
-Uses `all-minilm:22m` (all-MiniLM-L6-v2 via FastEmbed) which has:
+Uses `all-MiniLM-L6-v2` (via FastEmbed) which has:
 - **Context length:** 256 tokens (default), up to 512 tokens (configurable)
 - **Embedding length:** 384 dimensions
 
 In practice: **~800 characters** fits safely within 256 tokens (typical English: ~3-4 chars/token).
-
-Hardware RAM doesn't constrain chunking - the embedding model does.
 
 ### Smart Boundary Detection
 
@@ -509,21 +531,6 @@ Each split includes **overlap** (100 characters) to preserve semantic continuity
 | Overlap | **100 chars** | Semantic continuity |
 | Preprocessing | **~500 chars** | Headings + summary for embedding |
 
-### Content Preservation
-
-Full chunk content is stored in FAISS index. Before embedding, content is preprocessed to ~500 characters (headings + summary) to optimize search quality.
-
-```python
-# Full chunk stored for retrieval
-chunk.content  # Full text (up to 800 chars)
-
-# Preprocessed for embedding
-processed = headings + summary  # ~500 chars
-embedding = model.encode(processed)  # Fits in 256 tokens
-```
-
-**Search queries the full semantic representation while respecting model limits.**
-
 ---
 
 ## Multi-Factor Ranking
@@ -539,185 +546,6 @@ Score = (Semantic × 0.5) + (Recency × 0.3) + (Location × 0.2)
 
 ---
 
-## Integration Options
-
-fmem supports three integration approaches:
-
-### Option 1: AGENTS.md Integration ✅ CURRENT (Recommended)
-
-**Status:** ✅ Implemented and Active
-
-**How it works:**
-- Agent reads AGENTS.md at session start
-- Detects trigger words in user messages ("remember", "what about", etc.)
-- Automatically recalls relevant context
-- Injects naturally into conversation
-
-**Example:**
-```
-User: "What were my fitness goals?"
-Agent: (detects triggers → auto_recall() → responds with context)
-```
-
-**Pros:**
-- ✅ Working immediately
-- ✅ No code changes needed
-- ✅ Agent decides when to recall
-- ✅ Natural conversation flow
-
-**Location:** See `AGENTS.md` - Memory Recall section
-
----
-
-### Option B: Automatic Hook 🔄 PLANNED
-
-**Status:** 🔄 Planned for Phase 2B
-
-**How it will work:**
-- Automatic `should_search()` on EVERY message
-- Silent recall (injects context without mentioning)
-- Token budget management
-- Score threshold filtering
-
-**Decision:** Evaluate after 2 weeks of Option 1 usage
-
----
-
-### Option C: MCP Wrapper 📋 PLANNED
-
-**Status:** 📋 Planned for Phase 3 (March 2026)
-
-**How it will work:**
-- TypeScript MCP Server + Python Bridge
-- Universal client support (Claude Desktop, VS Code, etc.)
-- Industry standard protocol
-- Multi-client compatibility
-
-**Documentation:** See `mcp-wrapper/RATIONALE.md` and `IMPLEMENTATION.md`
-
----
-
-## Alternatives
-
-fmem exists in a landscape of memory systems. Here's how it compares:
-
-| System | Type | Key Difference from fmem |
-|--------|------|---------------------------|
-| **[MemGPT](https://github.com/cpacker/memgpt)** | Agent memory | Full agent framework with memory; fmem is memory-only |
-| **[Mem0](https://mem0.ai)** | Managed memory | Cloud-hosted, requires API; fmem is local-first |
-| **[Letta](https://letta.com)** | Agent platform | Agent orchestration; fmem is integration-only |
-| **[LangChain Memory](https://python.langchain.com/docs/modules/memory/)** | Framework memory | Part of LangChain; fmem is standalone |
-
-**When to choose fmem:**
-- You want local-first, privacy-preserving memory
-- You need chunk-level retrieval (not full documents or keywords)
-- You're using OpenClaw or want a standalone CLI
-- You control your embedding model and data
-
-**When to choose alternatives:**
-- You need managed cloud infrastructure → Mem0
-- You want full agent orchestration → MemGPT/Letta
-- You're already using LangChain → LangChain Memory
-
----
-
-## Development Roadmap
-
-### Phase 1: Core Stability ✅ (Complete)
-- [x] FAISS integration
-- [x] Chunk-level indexing
-- [x] Multi-factor ranking
-- [x] OpenClaw integration
-- [x] Security hardening
-
-### Phase 2: Enhanced Features (✅ ~60% Complete)
-Status: Option 1 complete (AGENTS.md), Option B deferred for evaluation
-
-**Completed:**
-- [x] AGENTS.md memory integration (Option 1 - Active)
-- [x] Security hardening (score: 8/10)
-- [x] Documentation (INSTALLATION.md, API.md, ARCHITECTURE.md)
-
-**Planned/Deferred:**
-- [ ] Async support for non-blocking retrieval (4-6 hours)
-- [🔄] Automatic Hook (Option B) - Dec 2026-03-01 after usage data
-- [ ] Incremental re-indexing (file watching)
-
-### Phase 3: MCP Wrapper (Future)
-- [ ] MCP server implementation
-- [ ] Multi-client support (OpenClaw, Claude Desktop, etc.)
-- [ ] Standardized tool registration
-
-### Phase 4: Advanced Features
-- [ ] Hierarchical chunk indexing (heading levels)
-- [ ] Graph-based chunk relationships
-- [ ] Automatic summarization with caching
-- [ ] Plugin architecture for custom formatters
-
----
-
-## Known Technical Debt
-
-1. **Global State:** `CONFIG` singleton makes testing difficult
-2. **No Async:** Synchronous only - blocks during embedding generation
-3. **Cache TTL:** 1 hour fixed - should be configurable
-4. **No Migration:** SQLite schema changes require manual migration
-
-**✅ Fixed in recent refactor:**
-- ~~Monolithic MemoryRetrieval class~~ - Refactored into specialized services (Phase 8, 2026-02-27)
-
----
-
-## Related Repositories
-
-- **fmem:** Public fmem package (github.com/LuisEduardoAvila/fmem)
-
----
-
-## Quick Links
-
-- [Installation Guide](./docs/INSTALLATION.md)
-- [API Documentation](./docs/API.md)
-- [Architecture Overview](./docs/ARCHITECTURE.md)
-- [Contributing](./CONTRIBUTING.md)
-
----
-
-## CLI Usage
-
-fmem provides a simple command-line interface for indexing and searching.
-
-### Index documents
-
-```bash
-# Auto-index configured directories (from fmem.conf)
-fmem index
-
-# Index specific directory
-fmem index /path/to/documents
-
-# Index single file
-fmem index /path/to/file.md
-```
-
-### Search
-
-```bash
-# Basic search
-fmem search "your query"
-
-# Search with top-k results
-fmem search "your query" -k 5
-```
-
-### Check status
-
-```bash
-fmem status
-```
-
----
-
 ## Configuration
 
 fmem uses a configuration file at `~/.openclaw/memory/fmem.conf`. For detailed configuration options and descriptions, see [config/enhanced_fmem.conf](./config/enhanced_fmem.conf).
@@ -730,7 +558,6 @@ fmem uses a configuration file at `~/.openclaw/memory/fmem.conf`. For detailed c
 | `data_dir` | `~/.openclaw/memory/` | Storage location for indexes and metadata |
 | **Search Settings** | | |
 | `min_similarity_threshold` | `0.3` | Minimum cosine similarity (0.0-1.0) for results |
-
 | **File Indexing** | | |
 | `additional_dirs` | *(varies)* | Directories to recursively auto-index |
 | `exclude_dirs` | `venv,__pycache__,node_modules` | Directories to exclude from indexing |
@@ -751,38 +578,129 @@ fmem uses a configuration file at `~/.openclaw/memory/fmem.conf`. For detailed c
 
 ---
 
+## Project Structure
+
+```
+projects/fmem/
+├── src/                    # Core source code
+├── docs/                   # Documentation
+├── tests/                  # Test suite
+├── config/                 # Configuration templates
+├── mcp-wrapper/           # MCP server documentation (planned)
+└── README.md              # This file
+```
+
+---
+
+## Alternatives
+
+| System | Type | Key Difference from fmem |
+|--------|------|---------------------------|
+| **[MemGPT](https://github.com/cpacker/memgpt)** | Agent memory | Full agent framework with memory; fmem is memory-only |
+| **[Mem0](https://mem0.ai)** | Managed memory | Cloud-hosted, requires API; fmem is local-first |
+| **[Letta](https://letta.com)** | Agent platform | Agent orchestration; fmem is integration-only |
+| **[LangChain Memory](https://python.langchain.com/docs/modules/memory/)** | Framework memory | Part of LangChain; fmem is standalone |
+
+**When to choose fmem:**
+- You want local-first, privacy-preserving memory
+- You need chunk-level retrieval (not full documents or keywords)
+- You're using OpenClaw or want a standalone CLI
+- You want automatic memory injection via plugin
+
+---
+
+## Development Roadmap
+
+### Phase 1: Core Stability ✅ (Complete)
+- [x] FAISS integration
+- [x] Chunk-level indexing
+- [x] Multi-factor ranking
+- [x] OpenClaw integration
+- [x] Security hardening
+
+### Phase 2: Enhanced Features ✅ (Complete)
+- [x] AGENTS.md memory integration (legacy, still supported)
+- [x] OpenClaw plugin (`fmem-auto` v1.0.0)
+- [x] Security hardening (score: 8/10)
+- [x] Documentation (INSTALLATION.md, API.md, ARCHITECTURE.md)
+
+### Phase 3: MCP Wrapper (Planned)
+- [ ] MCP server implementation
+- [ ] Multi-client support (OpenClaw, Claude Desktop, etc.)
+- [ ] Standardized tool registration
+
+### Phase 4: Advanced Features (Planned)
+- [ ] Async support for non-blocking retrieval
+- [ ] Incremental re-indexing (file watching)
+- [ ] Hierarchical chunk indexing (heading levels)
+- [ ] Graph-based chunk relationships
+- [ ] Automatic summarization with caching
+
+---
+
+## Known Technical Debt
+
+1. **Global State:** `CONFIG` singleton makes testing difficult
+2. **No Async:** Synchronous only - blocks during embedding generation
+3. **Cache TTL:** 1 hour fixed - should be configurable
+4. **No Migration:** SQLite schema changes require manual migration
+
+**✅ Fixed in recent refactors:**
+- ~~Monolithic MemoryRetrieval class~~ - Refactored into specialized services
+- ~~AGENTS.md-only integration~~ - Plugin provides automatic injection
+
+---
+
 ## Acknowledgments
 
 **Embedding Technology:**
-- **[qdrant/FastEmbed](https://github.com/qdrant/fastembed)** - Local ONNX-based embeddings without external API calls. Production-ready embedding models running locally on CPU with excellent performance characteristics.
+- **[qdrant/FastEmbed](https://github.com/qdrant/fastembed)** - Local ONNX-based embeddings without external API calls.
 
 **Hybrid chunking approach inspired by:**
-- **[verloop/md2chunks](https://github.com/verloop/md2chunks)** - Table-aware markdown splitting with atomic table handling
-- **[rango-ramesh/advanced-chunker](https://github.com/rango-ramesh/advanced-chunker)** - Semantic merging strategies for optimal chunk boundaries  
-- **And 5 other open-source chunking projects** analyzed during development
+- **[verloop/md2chunks](https://github.com/verloop/md2chunks)** - Table-aware markdown splitting
+- **[rango-ramesh/advanced-chunker](https://github.com/rango-ramesh/advanced-chunker)** - Semantic merging strategies
 
 **All external code adapted and re-implemented in pure Python** - no LLM dependencies, zero external API calls.
 
 ---
 
+## Related Repositories
+
+- **fmem:** Public fmem package (github.com/LuisEduardoAvila/fmem)
+
+---
+
+## Quick Links
+
+- [Installation Guide](./docs/INSTALLATION.md)
+- [API Documentation](./docs/API.md)
+- [Architecture Overview](./docs/ARCHITECTURE.md)
+- [Chunking Strategy](./docs/CHUNKING_STRATEGY.md)
+- [Examples](./docs/EXAMPLES.md)
+
+---
+
 ## Changelog
+
+### v3.3.0 (2026-04-22) - OpenClaw Plugin
+- ✅ **New:** `fmem-auto` plugin for OpenClaw (v1.0.0)
+- ✅ **New:** `before_prompt_build` hook for automatic memory injection
+- ✅ **New:** Trigger types: explicit, recency, location, context patterns
+- ✅ **New:** Plugin configuration (enabled, topK, minScore, timeoutMs)
+- ✅ **Improved:** CLI search options (`--format`, `--min-score`, `--max-content`, `--content-mode`)
+- ✅ **Changed:** Plugin is now the recommended integration method (AGENTS.md still supported)
+- 📚 **Docs:** Added plugin section, updated architecture diagrams
 
 ### v3.2.0 (2026-02-22) - Hybrid Chunking & Context Injection
 - ✅ **New:** Table-aware chunking (tables as atomic units)
 - ✅ **Performance:** 20x faster indexing (1-2s vs 30s+)
 - ✅ **Removed:** All LLM-based workarounds (6-8 API calls eliminated)
 - ✅ **New:** `md2chunks_splitter.py` module for hybrid splitting
-- ✅ **Improved:** Header context preservation for all chunks
 - ✅ **Fixed:** Duplicate chunk detection (re-indexing no longer creates duplicates)
 - ✅ **Fixed:** Recency weight calculation (30% not 9% - was double-applied)
-- ✅ **Fixed:** mtime preservation (created_at preserved, last_modified uses file time)
-- ✅ **New:** Configurable rate limiting (600 req/min default, tunable per hardware)
-- ✅ **New:** Pre-computed file summaries in metadata (for context injection)
+- ✅ **New:** Pre-computed file summaries in metadata
 - ✅ **New:** Dynamic stats extraction from search results
-- ✅ **New:** Special handling for memory files (extract topics + status)
-- ✅ **New:** Full source path in context (for file reading by LLM)
-- ✅ **New:** Multi-factor context: Pre-computed summary + Dynamic stats
-- 📚 **Docs:** Updated [CHUNKING_STRATEGY.md](./docs/CHUNKING_STRATEGY.md), [INTEGRATION_FLOW.md](./docs/INTEGRATION_FLOW.md)
+- ✅ **New:** Full source path in context
 
 ### v3.1.0 (2026-02-19) - Adaptive Chunking
 - ✅ Fixed chunk size to 800 chars (all-minilm:22m constraint)
@@ -797,19 +715,4 @@ fmem uses a configuration file at `~/.openclaw/memory/fmem.conf`. For detailed c
 
 ---
 
-**Last Updated:** 2026-02-22
-
----
-
-## Project Status
-
-| Phase | Status | Details |
-|-------|--------|---------|
-| Phase 1: Core Stability | ✅ Complete | FAISS, chunk indexing, ranking, security hardening |
-| Phase 2: Enhanced Features | ✅ ~60% Complete | Option 1 done (AGENTS.md), async/incremental pending |
-
-**Changes in this update:**
-- ✅ Rewrote intro to emphasize natural conversation and precise memory retrieval
-- ✅ Fixed repository references (DarthSpudFmem → fmem)
-- ✅ Updated Quick Links to point to correct documentation paths
-- ✅ Refined description of chunk-level indexing benefits
+**Last Updated:** 2026-04-22

@@ -1,8 +1,8 @@
 # fmem Development Roadmap
 
 **Version:** 3.2.0  
-**Last Updated:** 2026-04-11  
-**Status:** Production-stable, plugin phase next
+**Last Updated:** 2026-04-22  
+**Status:** Production-stable, plugin complete
 
 ---
 
@@ -27,117 +27,30 @@
 - N+1 query fix (batch operations)
 - 17 tests covering core functionality
 
+### Phase 4: OpenClaw Plugin ✅ (2026-04-22)
+- **Plugin:** `openclaw-fmem-auto` v1.0.0 — trigger-based auto-recall via `before_prompt_build` hook
+- **Runtime:** Uses `@openclaw/plugin-sdk/process-runtime` for `runExec` (subprocess bridge to fmem Python CLI)
+- **Features:** Trigger-based auto-recall, session deduplication (no duplicate injections per session), rate limiting
+- **Hook:** `before_prompt_build` — same hook as Active Memory, but only fires when content matches trigger patterns
+- **CLI enhancements:** `--format json`, `--min-score`, `--max-content`, `--content-mode` (adaptive score-based truncation)
+- **Positioning:** Low-cost Pi-friendly alternative to Active Memory (zero API calls, ~50ms latency only when triggered)
+- **6 pre-existing test failures** fixed in test_fmem.py
+
 ---
 
-## Current Phase: OpenClaw Plugin
+## Future Roadmap
 
-**Goal:** Make fmem an OpenClaw plugin with trigger-based auto-injection.
-
-### Why
-- Current setup requires me (the agent) to explicitly call `memory_search`
-- `memory-auto-recall` plugin does blanket injection on every prompt — wasteful on Pi
-- fmem already has FAISS (zero API calls) and trigger detection (`should_search()`)
-- Just needs wiring into `before_prompt_build` hook
-
-### Positioning
-**Low-cost alternative to Active Memory** for resource-constrained environments:
-
-| | Active Memory | fmem Plugin |
-|---|---|---|
-| Trigger | Every prompt | Pattern-matched only |
-| Embedding | API call per prompt (OpenRouter/OpenAI) | Local FAISS (zero API calls) |
-| Latency | ~200-500ms per prompt | ~50ms only when triggered |
-| Scope | memory-core (MEMORY.md + memory/) | memory/ + notes/ + projects/ + custom |
-| Pi-friendly | ❌ (API calls + latency) | ✅ (local search, zero network) |
-| Ideal for | Cloud deployments, unlimited budget | Self-hosted, Pi, privacy-first |
-
-### Design Principles
-- **Trigger-based, not blanket** — only inject when content matches patterns
-- **Zero API calls** — FAISS search on pre-computed local vectors
-- **Broader scope than memory-core** — notes/, projects/, custom dirs
-- **Portable** — plugin wraps fmem core, doesn't replace it
-
-### Plugin Architecture
-
-**Hook:** `api.on("before_prompt_build", ...)` — same hook used by Active Memory plugin
-
-**Reference implementations:**
-- Built-in: `dist/extensions/active-memory/index.js` — uses `api.on("before_prompt_build")` for recall before agent sees context
-- Community: `openclaw-memory-auto-recall` — simpler pattern, calls memory-core search then prepends results
-- Plugin SDK: https://docs.openclaw.ai/plugins/building-plugins
-- Entry points: https://docs.openclaw.ai/plugins/sdk-entrypoints
-- Hook API: `api.on(eventName, handler)` with event names from SDK overview
-
-**Plugin structure:**
-```
-openclaw-fmem/
-├── openclaw.plugin.json      # Manifest (id, name, configSchema)
-├── package.json               # With openclaw.extensions + compat fields
-├── src/
-│   └── index.ts               # definePluginEntry + register hook
-└── tsconfig.json
-```
-
-**Key SDK imports:**
-- `openclaw/plugin-sdk/plugin-entry` → `definePluginEntry`
-- `openclaw/plugin-sdk/config-schema` → `OpenClawSchema` for config validation
-
-**Config schema** (in `openclaw.plugin.json`):
-```json
-{
-  "id": "fmem",
-  "name": "fmem",
-  "description": "Trigger-based memory injection via FAISS",
-  "configSchema": {
-    "type": "object",
-    "properties": {
-      "maxResults": { "type": "integer", "default": 3 },
-      "minScore": { "type": "number", "default": 0.3 },
-      "minPromptLength": { "type": "integer", "default": 10 },
-      "triggerPatterns": { "type": "array", "items": { "type": "string" } }
-    },
-    "additionalProperties": false
-  }
-}
-```
-
-**Data flow:**
-```
-User message
-    ↓
-before_prompt_build hook fires
-    ↓
-Plugin: should_search(message)?
-    ↓ yes
-FAISS search (local, pre-computed, sub-ms)
-    ↓
-Format results → return { prepend: [content blocks] }
-    ↓
-Agent sees enriched prompt
-```
-
-**Bridge to fmem Python:** The plugin runs in Node.js but fmem is Python. Options:
-1. **Subprocess** — `python3 -m fmem search "query" --top-k 3 --format json` (simplest, ~50ms)
-2. **HTTP bridge** — fmem starts a lightweight HTTP server, plugin calls it (faster, more complex)
-3. **Shared SQLite** — Plugin reads fmem's SQLite+FAISS directly from Node.js (no Python needed, but needs faiss-node)
-
-Recommendation: Start with subprocess (proven pattern, fmem CLI already exists), benchmark on Pi, then optimize if needed.
-
-### Tasks
-- [ ] Create `openclaw-fmem` plugin scaffold (openclaw.plugin.json + package.json + src/index.ts)
-- [ ] Implement `before_prompt_build` hook with trigger detection
-- [ ] Bridge to fmem: subprocess call to `fmem search`
-- [ ] Format and inject results into prompt context (return `{ prepend }` blocks)
-- [ ] Config: maxResults, minScore, minPromptLength, triggerPatterns
-- [ ] Test on Pi (latency, accuracy, trigger hit rate)
+### Remaining Plugin Tasks
 - [ ] Publish to clawhub.ai
+- [ ] Test on Pi (latency, accuracy, trigger hit rate) — real-world validation
 
-### Reference Docs
-- Plugin building: https://docs.openclaw.ai/plugins/building-plugins
-- Plugin SDK overview: https://docs.openclaw.ai/plugins/sdk-overview
-- Entry points: https://docs.openclaw.ai/plugins/sdk-entrypoints
-- Active Memory plugin source: `dist/extensions/active-memory/index.js` (bundled)
-- Community auto-recall plugin: https://github.com/code-yeongyu/openclaw-memory-auto-recall
+### Technical Debt
+- [ ] **Refactor adaptive truncation** — `format_results()` in `fmem_integration.py` and `cmd_search()` in `cli.py` duplicate truncation logic (base limits: 400/250/150 by result count). Extract into shared utility in `fmem/truncation.py` with both callers importing from it.
+
+### Potential Future Enhancements
+- HTTP bridge instead of subprocess (lower latency, but more complex)
+- Shared SQLite + faiss-node (zero Python dependency, but needs faiss-node binding)
+- Config UI for triggerPatterns, maxResults, minScore, minPromptLength
 
 ---
 
@@ -154,7 +67,7 @@ These were in the previous roadmap. Dropped because:
 | Self-hosted embeddings | Ollama works fine, no need to replace |
 | Query Expansion Service | LLM call per query on Pi = bad idea |
 | Multi-language triggers | Nice-to-have, spaCy overhead on Pi |
-| Proactive injection spec | Superseded by this plugin design |
+| Proactive injection spec | Superseded by plugin design |
 
 ---
 
@@ -167,7 +80,7 @@ OpenClaw before_prompt_build hook
     ↓
 Plugin: should_search(message)?
     ↓ yes
-fmem CLI subprocess (python3 -m fmem search)
+fmem CLI subprocess via runExec (python3 -m fmem search)
     ↓
 FAISS search (local, pre-computed, sub-ms)
     ↓
@@ -176,20 +89,8 @@ Return { prepend: [content blocks] }
 Agent sees enriched prompt
 ```
 
-vs current:
-
-```
-User message
-    ↓
-Agent decides to call memory_search
-    ↓
-fmem CLI or Python API
-    ↓
-Agent reads results
-```
-
 ---
 
 ## Review Cadence
 
-**Quarterly** — next review July 2026 or when plugin is complete.
+**Quarterly** — next review July 2026.

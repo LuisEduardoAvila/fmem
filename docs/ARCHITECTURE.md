@@ -7,7 +7,8 @@
 │                              User Interface                              │
 │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐ │
 │  │  OpenClaw    │  │    CLI       │  │   Python API │  │  MCP Server │ │
-│  │  Integration │  │  (fmem.cli)  │  │  (import)    │  │  (future)   │ │
+│  │  Plugin      │  │  (fmem.cli)  │  │  (import)    │  │  (future)   │ │
+│  │  (fmem-auto) │  │              │  │              │  │             │ │
 │  └──────┬───────┘  └──────┬───────┘  └──────┬───────┘  └──────┬───────┘ │
 └─────────┼──────────────────┼──────────────────┼──────────────────┼───────┘
           │                  │                  │                  │
@@ -174,6 +175,149 @@ Critical mapping that links FAISS indices to documents/chunks:
 - `max_file_size`: 50MB limit
 - `extensions`: Whitelist (.md, .txt, .py, etc.)
 
+## OpenClaw Plugin Architecture (fmem-auto)
+
+The fmem-auto plugin is an OpenClaw plugin that automatically injects relevant memories into LLM context before prompt building. It bridges the gap between the user's conversation and fmem's retrieval engine, making memory recall transparent and automatic.
+
+### Plugin Components
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    fmem-auto Plugin (TypeScript)                 │
+│                                                                  │
+│  ┌────────────┐  ┌──────────────┐  ┌────────────────────────┐   │
+│  │  index.ts  │  │  triggers.ts │  │     fmem-client.ts     │   │
+│  │  (entry)   │  │  (patterns)  │  │  (CLI bridge)          │   │
+│  └─────┬──────┘  └──────┬───────┘  └───────────┬────────────┘   │
+│        │                │                      │                │
+│  ┌─────┴──────┐  ┌──────┴───────┐  ┌───────────┴────────────┐   │
+│  │ Hook Reg.  │  │ Pattern Match│  │ runExec → fmem CLI     │   │
+│  │ before_    │  │ regex/class  │  │ search / status        │   │
+│  │ prompt_   │  │ based        │  │                        │   │
+│  │ build     │  │              │  │                        │   │
+│  └────────────┘  └──────────────┘  └────────────────────────┘   │
+│                                                                  │
+│  ┌────────────┐  ┌──────────────────────────────────────────┐    │
+│  │  types.ts  │  │            formatter.ts                  │    │
+│  │ (interfaces)│  │  Result → LLM context formatting       │    │
+│  └────────────┘  └──────────────────────────────────────────┘    │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Component Details
+
+#### `index.ts` — Entry Point & Hook Registration
+- Registers the `before_prompt_build` hook with OpenClaw's plugin system
+- This hook fires before the LLM prompt is assembled, allowing fmem to inject retrieved context
+- Coordinates the trigger → search → format pipeline
+- Exports the plugin manifest and lifecycle hooks
+
+#### `triggers.ts` — Pattern Matching
+- Determines whether a given user message should trigger a memory search
+- Uses pattern-based matching (regex and/or classification) to avoid searching on every message
+- Prevents unnecessary CLI calls for messages that don't benefit from memory recall (e.g., greetings, simple commands)
+- Returns a boolean or extracted query string
+
+#### `fmem-client.ts` — CLI Bridge
+- Calls the fmem CLI via OpenClaw's `runExec` utility
+- Constructs and executes: `fmem search "<query>" --json` (or equivalent)
+- Parses CLI output (JSON) into structured result objects
+- Handles errors gracefully (fmem not installed, index empty, CLI failures)
+
+#### `formatter.ts` — Result Formatting
+- Transforms raw search results into LLM-consumable context
+- Formats results as `prependContext` — text injected before the user's message in the prompt
+- Typically wraps results in `<retrieved_memory>` or similar delimiters
+- Ensures output is concise enough for context windows while preserving relevance
+
+#### `types.ts` — TypeScript Interfaces
+- Defines shared type definitions used across the plugin
+- Interfaces for search results, trigger configurations, plugin settings
+- Ensures type safety between components
+
+### Plugin Data Flow
+
+```
+User sends message
+       │
+       ▼
+┌──────────────────────┐
+│ OpenClaw Gateway     │
+│ receives message     │
+└──────────┬───────────┘
+           │
+           ▼
+┌──────────────────────┐
+│ before_prompt_build  │
+│ hook fires           │
+└──────────┬───────────┘
+           │
+           ▼
+┌──────────────────────┐     ┌────────────────────┐
+│ triggers.ts          │────▶│ Pattern match      │
+│ Should search?       │     │ against message    │
+└──────────┬───────────┘     └────────────────────┘
+           │
+           │ Yes (trigger matched)
+           ▼
+┌──────────────────────┐     ┌────────────────────┐
+│ fmem-client.ts       │────▶│ runExec:           │
+│ Call fmem CLI        │     │ fmem search "..."  │
+└──────────┬───────────┘     └────────────────────┘
+           │
+           ▼
+┌──────────────────────┐
+│ fmem Core            │
+│ FAISS search →       │
+│ ranked results       │
+└──────────┬───────────┘
+           │
+           ▼
+┌──────────────────────┐
+│ formatter.ts         │
+│ Format results as    │
+│ prependContext       │
+└──────────┬───────────┘
+           │
+           ▼
+┌──────────────────────┐
+│ OpenClaw assembles   │
+│ final prompt with   │
+│ memory context      │
+└──────────────────────┘
+```
+
+### Plugin Configuration
+
+The plugin is registered in OpenClaw's plugin configuration:
+
+```yaml
+plugins:
+  entries:
+    - name: fmem-auto
+      config:
+        # Optional: override default trigger patterns
+        # Optional: set max results to inject
+        # Optional: configure prependContext format
+```
+
+### Plugin ↔ Core Interface Contract
+
+The plugin communicates with fmem exclusively through the CLI — there is no direct Python API call from TypeScript. This boundary is intentional:
+
+| Concern | Plugin Side (TS) | Core Side (Python) |
+|---------|------------------|---------------------|
+| Search invocation | `runExec("fmem search ...")` | `cli.py` → `MemoryRetrieval.search()` |
+| Result format | Parses JSON stdout | Emits JSON via `--json` flag |
+| Error handling | Catches non-zero exit codes | Returns structured error JSON |
+| Index management | Not in scope (use CLI directly) | `fmem index`, `fmem status` |
+
+**Benefits of CLI boundary:**
+- Language isolation: No FFI or subprocess protocol complexity
+- Version independence: Plugin and core can evolve separately
+- Testability: Plugin can be tested with mocked CLI output
+- Simplicity: Single well-defined interface contract
+
 ## Data Flow
 
 ### Indexing Flow
@@ -206,7 +350,7 @@ Document File
                      └──────────────┘
 ```
 
-### Search Flow
+### Search Flow (CLI Direct)
 
 ```
 Query String
@@ -250,21 +394,91 @@ Query String
 └──────────────┘
 ```
 
-**Mermaid Visualization:**
+### Search Flow (Plugin-Mediated)
+
+```
+User Message
+     │
+     ▼
+┌──────────────────┐
+│ OpenClaw Gateway │
+│ receives message │
+└──────┬───────────┘
+       │
+       ▼
+┌──────────────────┐
+│ before_prompt_   │
+│ build hook       │
+└──────┬───────────┘
+       │
+       ▼
+┌──────────────────┐
+│ Trigger Detection│
+│ (triggers.ts)    │
+└──────┬───────────┘
+       │
+       │ Matched
+       ▼
+┌──────────────────┐
+│ fmem search CLI  │
+│ (fmem-client.ts) │
+└──────┬───────────┘
+       │
+       ▼
+┌──────────────────┐
+│ FAISS Search +   │
+│ Multi-Factor     │
+│ Ranking          │
+└──────┬───────────┘
+       │
+       ▼
+┌──────────────────┐
+│ Format Results   │
+│ (formatter.ts)   │
+└──────┬───────────┘
+       │
+       ▼
+┌──────────────────┐
+│ prependContext   │
+│ injected into    │
+│ LLM prompt       │
+└──────────────────┘
+```
+
+**Mermaid Visualization (Combined Flows):**
 
 ```mermaid
-flowchart LR
-    A[User Query] --> B[Query Embedding]
-    B --> C[FAISS Search]
-    C --> D[Raw Results]
-    D --> E[Multi-Factor Scoring]
-    E --> F[Recency Boost]
-    F --> G[Location Boost]
-    G --> H[Final Ranking]
-    H --> I[Top-k Results]
-    
-    style E fill:#f9f, stroke:#333
-    note right of E: Semantic: 50%\nRecency: 30%\nLocation: 20%
+flowchart TB
+    subgraph Plugin ["OpenClaw Plugin (fmem-auto)"]
+        A[User Message] --> B[before_prompt_build Hook]
+        B --> C{Trigger Detection}
+        C -->|No match| X[Skip - no memory injection]
+        C -->|Match| D[Extract Query]
+    end
+
+    subgraph CLI ["fmem CLI"]
+        D --> E[fmem search --json]
+        E --> F[Query Embedding]
+    end
+
+    subgraph Core ["fmem Core"]
+        F --> G[FAISS Search]
+        G --> H[Raw Results]
+        H --> I[Multi-Factor Scoring]
+        I --> J[Recency Boost]
+        J --> K[Location Boost]
+        K --> L[Final Ranking]
+        L --> M[Top-k Results]
+    end
+
+    subgraph Output ["Plugin Output"]
+        M --> N[formatter.ts]
+        N --> O[prependContext]
+        O --> P[LLM Prompt with Memory]
+    end
+
+    style I fill:#f9f, stroke:#333
+    note right of I: Semantic: 50%\nRecency: 30%\nLocation: 20%
 ```
 
 ## Security Architecture
@@ -296,6 +510,14 @@ flowchart LR
 - **File System:** Untrusted (always validate paths)
 - **FastEmbed:** Local execution (no external API)
 - **User Input:** Untrusted (validate everything)
+- **Plugin → CLI boundary:** Untrusted (CLI output parsed defensively)
+
+### Plugin-Specific Security
+
+- **CLI injection:** fmem-client.ts sanitizes query strings before passing to CLI
+- **Output parsing:** formatter.ts validates structure of JSON output from CLI
+- **Context injection:** prependContext is clearly delimited — LLM can distinguish memory from user input
+- **Trigger gating:** Not every message triggers a search, limiting surface area
 
 ## Performance Characteristics
 
@@ -307,6 +529,8 @@ flowchart LR
 | Search | O(log n) | FAISS approximate search |
 | Cache hit | O(1) | Hash lookup |
 | Cache miss | O(n) | n = embedding dimension (384) |
+| Plugin trigger check | O(1) | Pattern match against message |
+| Plugin search call | O(log n) | CLI subprocess + FAISS search |
 
 ### Space Complexity
 
@@ -316,6 +540,7 @@ flowchart LR
 | SQLite DB | ~1KB per chunk | Linear with chunks |
 | Embedding Cache | Max 30MB | Bounded (10k entries) |
 | Metadata JSON | ~100B per doc | Linear with documents |
+| Plugin prependContext | ~1-4KB | Bounded by top_k results |
 
 ### Bottlenecks
 
@@ -323,39 +548,55 @@ flowchart LR
 2. **FAISS Search:** Index size > 100k vectors
 3. **File I/O:** Large files (>10MB)
 4. **SQLite:** Without proper indexing on `parent_file`
+5. **Plugin CLI subprocess:** `runExec` spawns a process per search — negligible for interactive use but not suitable for high-frequency batch scenarios
 
 ## Integration Patterns
 
-### OpenClaw Integration
+### OpenClaw Plugin Integration (Primary)
+
+The fmem-auto plugin is the primary integration path for OpenClaw agents. It provides transparent, automatic memory recall without requiring explicit CLI calls from the agent.
 
 ```
 User Message
      │
      ▼
 ┌──────────────┐
-│  should_     │
-│  search()?   │
+│  before_     │
+│  prompt_     │
+│  build hook  │
 └──────┬───────┘
        │
+       ▼
+┌──────────────┐
+│  triggers.ts │
+│  Match?      │
+└──────┬───────┘
        │ Yes
        ▼
 ┌──────────────┐
-│  auto_recall │
-│   (query)    │
+│  fmem-client │
+│  search CLI  │
 └──────┬───────┘
        │
        ▼
 ┌──────────────┐
-│  format_     │
-│  results()   │
+│  formatter   │
+│  results →   │
+│  context     │
 └──────┬───────┘
        │
        ▼
 ┌──────────────┐
-│ <retrieved_  │
-│ memory> tags │
+│ prependContext│
+│ for LLM      │
 └──────────────┘
 ```
+
+**Advantages over manual CLI calls:**
+- **Automatic:** No agent code needed to trigger searches
+- **Transparent:** Memory context appears naturally in the prompt
+- **Consistent:** Same trigger logic and formatting every time
+- **Efficient:** Only fires when trigger patterns match
 
 ### CLI Integration
 
@@ -438,6 +679,27 @@ class CustomMemoryRetrieval(MemoryRetrieval):
         pass
 ```
 
+### Custom Plugin Triggers
+
+Extend `triggers.ts` with new patterns:
+```typescript
+// Add domain-specific triggers
+const customTriggers: TriggerPattern[] = [
+  { pattern: /project status/i, queryExtractor: (msg) => `${msg} status` },
+  { pattern: /how do we handle/i, queryExtractor: (msg) => msg },
+];
+```
+
+### Custom Result Formatting
+
+Override `formatter.ts` for different output styles:
+```typescript
+// Compact format for smaller context windows
+function compactFormat(results: SearchResult[]): string {
+  return results.map(r => `${r.heading}: ${r.content.slice(0, 100)}`).join('\n');
+}
+```
+
 ## Known Limitations
 
 1. **Single-node only:** No distributed support
@@ -445,6 +707,8 @@ class CustomMemoryRetrieval(MemoryRetrieval):
 3. **Synchronous only:** No async/await support
 4. **English-optimized:** Token estimation assumes English text
 5. **Local execution:** Runs on CPU (GPU acceleration not yet implemented)
+6. **Plugin CLI subprocess:** Each search spawns a new process — not ideal for sub-millisecond latency requirements
+7. **Trigger false positives/negatives:** Pattern-based trigger detection may miss edge cases; requires tuning
 
 ## Future Architecture (MCP Phase)
 
@@ -456,36 +720,42 @@ graph TB
         A[Query]
     end
     
-    subgraph OpenClaw [OpenClaw Integration]
-        B[should_search?]
-        C[auto_recall]
+    subgraph Plugin [OpenClaw Plugin (fmem-auto)]
+        B[before_prompt_build]
+        C[Trigger Detection]
+        D[fmem-client.ts]
+        E[formatter.ts]
     end
     
     subgraph Core [fmem Core]
-        D[MemoryRetrieval]
-        E[Chunk Index]
-        F[FAISS Index]
-        G[SQLite DB]
+        F[MemoryRetrieval]
+        G[Chunk Index]
+        H[FAISS Index]
+        I[SQLite DB]
     end
     
     subgraph Output [Results]
-        H[Ranked Context]
+        J[prependContext → LLM]
     end
     
     A --> B
-    B -->|Triggers| C
-    C --> D
-    D --> E
+    B --> C
+    C -->|Triggers| D
     D --> F
-    D --> G
-    D --> H
+    F --> G
+    F --> H
+    F --> I
+    F --> E
+    E --> J
 ```
 
 **ASCII Visualization:**
+```
 ┌─────────────────────────────────────────────────────────────────────────┐
 │                         Universal Clients                               │
 │  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐ │
 │  │OpenClaw  │  │  Claude  │  │  VS Code │  │  Cursor  │  │   ...    │ │
+│  │ Plugin   │  │          │  │          │  │          │  │          │ │
 │  └────┬─────┘  └────┬─────┘  └────┬─────┘  └────┬─────┘  └────┬─────┘ │
 └───────┼─────────────┼─────────────┼─────────────┼─────────────┼───────┘
         │             │             │             │             │
@@ -508,9 +778,10 @@ graph TB
 - FastEmbed: https://github.com/qdrant/fastembed
 - MCP Specification: https://spec.modelcontextprotocol.io/
 - all-MiniLM-L6-v2: https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2 (current, 384 dims)
+- OpenClaw Plugin System: https://github.com/nickthecook/openclaw
 
 ---
 
-**Last Updated:** 2026-02-16  
-**Version:** 3.0.0  
+**Last Updated:** 2026-04-22  
+**Version:** 3.1.0  
 **Architecture Owner:** fmem Development Team
