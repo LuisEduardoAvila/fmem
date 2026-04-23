@@ -63,7 +63,7 @@ export async function fmemSearch(
     // Build args array (avoids shell injection)
     const args = [
       'search',
-      '--json',
+      '--format', 'json',
       '-k', topK.toString(),
       '--min-score', minScore.toString(),
       query
