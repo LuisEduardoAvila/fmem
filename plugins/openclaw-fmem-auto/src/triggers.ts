@@ -103,13 +103,49 @@ const TRIGGER_WORDS = [
 const TRIGGER_WORD_SET = new Set(TRIGGER_WORDS.map(w => w.toLowerCase()));
 
 /**
+ * Patterns that indicate the search target comes AFTER the phrase.
+ * When matched, extract the text after the phrase as the primary query.
+ * Uses ([^.\n]+) to stop at sentence boundaries (period/newline).
+ */
+const EXTRACT_AFTER_PATTERNS = [
+  /look up\s+([^.\n]+)/i,
+  /look up\s*:\s*([^.\n]+)/i,
+  /find\s+([^.\n]+)/i,
+  /search (?:for\s+)?([^.\n]+)/i,
+  /recall\s+([^.\n]+)/i,
+  /remember\s+([^.\n]+)/i,
+  /show me\s+([^.\n]+)/i,
+  /tell me about\s+([^.\n]+)/i,
+  /what (?:did|was|were)\s+([^.\n]+)/i,
+];
+
+/**
  * Extract relevant search terms from message.
  * Strips trigger words that dilute semantic matching.
+ * Prioritizes text after trigger phrases like "look up X".
  * 
  * @param message - User message text
  * @returns Extracted search query
  */
 export function extractSearchQuery(message: string): string {
+  // Check for trigger phrases where the search target comes AFTER the phrase
+  for (const pattern of EXTRACT_AFTER_PATTERNS) {
+    const match = message.match(pattern);
+    if (match && match[1]) {
+      // Extract the text after the trigger phrase
+      const afterTrigger = match[1].trim();
+      // Use this as the primary query (first 100 chars)
+      if (afterTrigger.length > 0) {
+        // Remove filler words and clean up
+        const filler = /\b(please|can you|could you|would you|i want to|i need|i'd like)\b/gi;
+        const cleaned = afterTrigger.replace(filler, '');
+        // Take first 100 chars max
+        return cleaned.slice(0, 100).trim();
+      }
+    }
+  }
+  
+  // Fallback: original logic for messages without explicit trigger phrases
   // Remove common filler words
   const filler = /\b(please|can you|could you|would you|i want to|i need|i'd like)\b/gi;
   const cleaned = message.replace(filler, '');

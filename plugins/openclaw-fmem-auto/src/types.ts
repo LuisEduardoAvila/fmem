@@ -20,6 +20,9 @@ export interface Message {
  * Event passed to the before_prompt_build hook.
  */
 export interface PluginHookBeforePromptBuildEvent {
+  /** The user's message text (already extracted by OpenClaw) */
+  prompt: string;
+  /** The conversation history */
   messages: Message[];
   sessionId?: string;
 }

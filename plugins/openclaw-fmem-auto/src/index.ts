@@ -27,6 +27,39 @@ import { shouldSearch, extractSearchQuery } from './triggers.js';
 import { fmemSearch, isFmemAvailable } from './fmem-client.js';
 import { formatResults } from './formatter.js';
 
+/** Patterns for OpenClaw-injected context (fallback for when event.prompt unavailable) */
+const INJECTED_PATTERNS = [
+  /^System( \(untrusted\))?:/,
+  /^<retrieved_memory>/,
+  /^Conversation info \(untrusted metadata\):/,
+  /^Sender \(untrusted metadata\):/,
+  /^Read HEARTBEAT\.md if it exists/,
+];
+
+/**
+ * Check if text is OpenClaw-injected context (fallback path only).
+ * Note: event.prompt is already clean, this is only used when falling back to messages array.
+ */
+function isInjectedContent(text: string): boolean {
+  return INJECTED_PATTERNS.some(p => p.test(text));
+}
+
+/**
+ * Extract user text from OpenClaw metadata envelope (fallback path only).
+ * Note: event.prompt is already clean, this is only used when falling back to messages array.
+ */
+function extractUserTextFromEnvelope(text: string): string | null {
+  if (!text.startsWith('Conversation info (untrusted metadata):')) {
+    return null;
+  }
+  
+  const lastCodeBlock = text.lastIndexOf('```');
+  if (lastCodeBlock === -1) return null;
+  
+  const afterEnvelope = text.slice(lastCodeBlock + 3).trim();
+  return afterEnvelope.length > 0 ? afterEnvelope : null;
+}
+
 /** Deduplication TTL (5 minutes) */
 const DEDUPE_TTL_MS = 5 * 60 * 1000;
 
@@ -79,27 +112,24 @@ function cleanupCache(cache: Map<string, number>): void {
 }
 
 /**
- * Find the last user message from the messages array.
+ * Find the last user message from the messages array (fallback path).
+ * Note: event.prompt is preferred - this is only used when event.prompt is undefined.
  * Handles string content and array content (multi-modal).
- * P1-8: Added null/undefined validation.
- * Skips system-injected context (messages starting with "System:").
+ * Skips system-injected context (messages starting with known envelope patterns).
  */
 function getLastUserMessage(messages: unknown[]): string | null {
   if (!Array.isArray(messages)) return null;
   
   for (let i = messages.length - 1; i >= 0; i--) {
     const msg = messages[i];
-    
-    // P1-8: Defensive check for null/undefined
     if (!msg || typeof msg !== 'object') continue;
     
     const msgObj = msg as Record<string, unknown>;
     if (msgObj.role !== 'user') continue;
     
     const content = msgObj.content;
-    
-    // Get text content
     let textContent = '';
+    
     if (typeof content === 'string' && content.trim()) {
       textContent = content;
     } else if (Array.isArray(content)) {
@@ -111,8 +141,10 @@ function getLastUserMessage(messages: unknown[]): string | null {
     
     if (!textContent.trim()) continue;
     
-    // Skip system-injected content (starts with "System:")
-    if (textContent.startsWith('System:')) {
+    // Skip OpenClaw-injected context (fallback extraction)
+    if (isInjectedContent(textContent)) {
+      const extracted = extractUserTextFromEnvelope(textContent);
+      if (extracted) return extracted;
       continue;
     }
     
@@ -151,9 +183,10 @@ async function beforePromptBuild(
       return; // Skip, too soon
     }
     
-    // Get the last user message
-    const messages = event.messages as unknown[];
-    const lastUserMessage = getLastUserMessage(messages);
+    // OpenClaw's active-memory uses event.prompt directly (pre-extracted by OpenClaw)
+    // This is the clean user message without envelope metadata
+    // Fall back to extracting from messages array if prompt not available
+    const lastUserMessage = event.prompt || getLastUserMessage(event.messages as unknown[]);
     console.log('[fmem-auto] lastUserMessage:', lastUserMessage?.slice(0, 100));
     
     if (!lastUserMessage) {
