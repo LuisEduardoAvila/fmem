@@ -1,5 +1,7 @@
 # Specification: Proactive Context Injection
 
+> ⚠️ **STATUS: NOT IMPLEMENTED** — This specification describes `get_proactive_context()` and `reset_proactive()`, which do not exist in the current codebase. The current plugin uses `before_prompt_build` hook with `shouldSearch()` trigger detection instead.
+
 ## Requirements
 
 ### REQ-001: Proactive Entry Point

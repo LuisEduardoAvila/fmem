@@ -17,7 +17,7 @@ This document shows the step-by-step flow when a user message triggers memory se
 
 ### Architecture
 
-fmem ships as an OpenClaw plugin that hooks into the prompt-building lifecycle. When a user message arrives, the plugin intercepts it before the LLM prompt is assembled, searches for relevant memories, and injects them as prepend context.
+fmem ships as an OpenClaw plugin that hooks into the prompt-building lifecycle. When a user message arrives, the plugin intercepts it via the `before_prompt_build` hook, searches for relevant memories, and injects them as prepend context.
 
 ### Hook Flow
 

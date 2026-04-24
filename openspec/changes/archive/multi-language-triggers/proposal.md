@@ -1,5 +1,7 @@
 # Proposal: Multi-Language Trigger Detection
 
+> ⚠️ **STATUS: NOT IMPLEMENTED** — This proposal describes multi-language trigger detection which is NOT in the current plugin. The current `openclaw-fmem-auto` plugin uses English-only regex patterns in `triggers.ts`.
+
 ## Problem Statement
 
 fmem's current `should_search()` trigger mechanism uses English-only regex patterns, making it ineffective for non-English queries. The user (Luis) works with Portuguese content (Trabalhista project) and needs memory recall to trigger correctly for Portuguese queries like "O que eu disse sobre distrobox?" or "Lembra do caso trabalhista?"

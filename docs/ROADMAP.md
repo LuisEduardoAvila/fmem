@@ -1,7 +1,7 @@
 # fmem Development Roadmap
 
-**Version:** 3.2.0  
-**Last Updated:** 2026-04-22  
+**Version:** 3.3.0  
+**Last Updated:** 2026-04-24  
 **Status:** Production-stable, plugin complete
 
 ---

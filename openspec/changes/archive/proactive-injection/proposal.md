@@ -1,5 +1,7 @@
 # Proposal: Proactive Context Injection
 
+> ⚠️ **STATUS: NOT IMPLEMENTED** — This proposal describes `get_proactive_context()` and `reset_proactive()` which do NOT exist in the current codebase. The current plugin uses `before_prompt_build` hook with `shouldSearch()` trigger detection.
+
 ## Problem Statement
 
 fmem has `should_search()` trigger detection and `auto_recall()` retrieval, but both are **reactive** — they require explicit keywords like "remember" or "recall". When the agent doesn't call fmem (human error, missed trigger), relevant context stays dormant.

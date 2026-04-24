@@ -1,5 +1,7 @@
 # Tasks: Multi-Language Trigger Detection
 
+> ⚠️ **STATUS: NOT IMPLEMENTED** — These tasks describe planned work for multi-language triggers. The current plugin (`openclaw-fmem-auto`) uses English-only regex patterns in `triggers.ts`.
+
 ## Phase 1: Regex Pattern System
 
 ### 1.1 Create Pattern Infrastructure

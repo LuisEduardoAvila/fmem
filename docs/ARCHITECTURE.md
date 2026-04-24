@@ -208,7 +208,7 @@ The fmem-auto plugin is an OpenClaw plugin that automatically injects relevant m
 
 #### `index.ts` — Entry Point & Hook Registration
 - Registers the `before_prompt_build` hook with OpenClaw's plugin system
-- This hook fires before the LLM prompt is assembled, allowing fmem to inject retrieved context
+- This hook fires before the LLM prompt is built, allowing fmem to inject retrieved context
 - Coordinates the trigger → search → format pipeline
 - Exports the plugin manifest and lifecycle hooks
 
@@ -281,7 +281,7 @@ User sends message
            │
            ▼
 ┌──────────────────────┐
-│ OpenClaw assembles   │
+│ OpenClaw builds     │
 │ final prompt with   │
 │ memory context      │
 └──────────────────────┘

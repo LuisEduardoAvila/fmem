@@ -15,9 +15,17 @@
 
 ## Testing
 
+**Python core:**
 ```bash
 python tests/test_fmem.py
 ```
+
+**TypeScript plugin:**
+```bash
+cd plugins/openclaw-fmem-auto && npm run typecheck
+```
+
+Note: The TypeScript plugin has no runtime test suite yet. Type checking confirms type correctness of the plugin code.
 
 ## Submitting Changes
 

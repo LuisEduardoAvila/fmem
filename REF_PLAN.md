@@ -1,5 +1,7 @@
 # Technical Refactoring Blueprint - fmem v3.1.0
 
+> **Note:** This refactoring plan describes the extraction of service modules from the monolithic `fmem.py`. The core refactoring was completed — `fmem.py` was reduced from ~3,130 lines to ~1,286 lines with 9 service modules extracted. See `src/fmem/` for the current module structure.
+
 ## Overview
 
 This document outlines a structural refactoring of the fmem codebase to improve:

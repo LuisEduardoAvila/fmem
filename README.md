@@ -167,8 +167,8 @@ Or manually add to your OpenClaw config (`~/.openclaw/config.yaml`):
 ```yaml
 plugins:
   entries:
-    - name: fmem-auto
-      version: "1.0.0"
+    fmem-auto:
+      enabled: true
 ```
 
 See the [Plugin section](#-openclaw-plugin-fmem-auto) for full configuration.
@@ -230,11 +230,12 @@ Shows index stats: total chunks, indexed files, index size, last indexed.
 
 ### How It Works
 
-The plugin hooks into OpenClaw's `before_prompt_build` lifecycle. Before the LLM processes your message, fmem:
+The plugin hooks into OpenClaw's `before_prompt_build` lifecycle event. Before the LLM processes your message, fmem:
 
-1. **Detects triggers** — Checks if the message matches explicit, recency, location, or context patterns
-2. **Searches memory** — Runs semantic search with multi-factor ranking
-3. **Injects context** — Adds relevant memories to the prompt context
+1. **Extracts the message** — Uses `event.prompt` (the clean user message, pre-extracted by OpenClaw), falling back to parsing `event.messages` only as a secondary path
+2. **Detects triggers** — Checks if the message matches explicit, recency, location, or context patterns
+3. **Searches memory** — Runs semantic search with multi-factor ranking
+4. **Injects context** — Adds relevant memories to the prompt context
 
 ```
 User Message → before_prompt_build hook → fmem search → inject context → LLM sees message + memory
@@ -249,13 +250,11 @@ Add to your OpenClaw config (`~/.openclaw/config.yaml`):
 ```yaml
 plugins:
   entries:
-    - name: fmem-auto
-      version: "1.0.0"
-      config:
-        enabled: true
-        topK: 3
-        minScore: 0.25
-        timeoutMs: 5000
+    fmem-auto:
+      enabled: true
+      topK: 3
+      minScore: 0.25
+      timeoutMs: 5000
 ```
 
 | Setting | Type | Default | Description |
@@ -271,10 +270,36 @@ The plugin uses multiple trigger strategies to decide when to search:
 
 | Type | Description | Examples |
 |------|-------------|----------|
-| **Explicit** | User directly asks for memory | "remember", "recall", "what about" |
-| **Recency** | User references time | "last week", "previous", "recently", "before" |
-| **Location** | User references a place or category | "fitness", "movies", "projects", "work" |
-| **Context** | Pattern matches personal context | "my goals", "my preferences", "we discussed" |
+| **Explicit** | User directly asks for memory | "look up", "recall", "remember", "show me" |
+| **Recency** | User references time periods | "last week", "recently", "yesterday", "before" |
+| **Location** | User mentions a path or directory | "in docs", "under projects/", "from memory/" |
+| **Context** | User references personal context patterns | "my preferences", "my goals", "my projects", "workspace" |
+
+### Custom Triggers
+
+You can override any trigger category with your own patterns via config:
+
+```yaml
+plugins:
+  entries:
+    fmem-auto:
+      triggers:
+        explicit:
+          - "look up"
+          - "find"
+          - "recall"
+        recency:
+          - "last week"
+          - "yesterday"
+        location:
+          - "in docs"
+          - "from projects"
+        context:
+          - "my preferences"
+          - "my goals"
+```
+
+Any trigger category not specified in config falls back to the built-in defaults.
 
 ### Comparison: Plugin vs AGENTS.md Integration
 
@@ -332,7 +357,7 @@ graph TB
 |-----------|---------|----------|
 | `MemoryRetrieval` | Core search class (composition root) | `src/fmem/memory_retrieval.py` |
 | `fmem-auto` | OpenClaw plugin for automatic injection | Plugin entry |
-| `auto_recall()` | Legacy OpenClaw integration function | `src/fmem/fmem_integration.py` |
+| `auto_recall()` | Python integration function (for AGENTS.md triggers) | `src/fmem/fmem_integration.py` |
 | `cli.py` | Command-line interface | `src/fmem/cli.py` |
 | `ConfigService` | Configuration handling | `src/fmem/config.py` |
 | `chunking.py` | Hybrid chunking (table-aware + headings) | `src/fmem/chunking.py` |
@@ -375,7 +400,6 @@ I found {N} relevant memories for this conversation:
 
 [1] {Relevance}: {Document type} from {location}/{filename}
    Source: {full_file_path}
-   About this file: {precomputed_summary} | {dynamic_stats}
    
    Under '{heading}':
    {content_preview}
@@ -402,9 +426,9 @@ I found {N} relevant memories for this conversation:
 - Helps LLM assess confidence (personal notes vs external docs)
 
 **4. Document Type + Location Context**
-- Same content means different things based on where it lives
-- `"Memory from memory/2026-02-23.md"` → Personal reflection
-- `"Decision from decisions/backup.md"` → Formal choice
+- Document type and directory provide important context
+- `Memory from memory/2026-02-23.md` → Personal reflection
+- `Decision from decisions/backup.md` → Formal choice
 
 **5. Heading Context (`Under '{heading}':`)**
 - Preserves document structure that was lost during chunking
@@ -423,7 +447,6 @@ I found 2 relevant memories for this conversation:
 
 [1] Most relevant: Memory from memory/2026-02-23.md
    Source: /home/luis/.openclaw/workspace/memory/2026-02-23.md
-   About this file: Daily log of workspace activities | Relevant stats: 41 series tracked, 8.7 average rating
    
    Under 'BingeWatching Project':
    Populated IMDb ratings for all 41 series and 40 movies. Updated weekly reports to include TMDB ratings in recommendations. 
@@ -431,7 +454,6 @@ I found 2 relevant memories for this conversation:
 
 [2] Also relevant: Decision from decisions/backup.md
    Source: /home/luis/.openclaw/workspace/decisions/backup.md
-   About this file: Repository backup strategy and data separation decisions
    
    Under 'Repository Mapping':
    SmartSpud is the private workspace backup. fmem is now a separate public repository.
@@ -620,16 +642,22 @@ projects/fmem/
 
 ### Phase 2: Enhanced Features ✅ (Complete)
 - [x] AGENTS.md memory integration (legacy, still supported)
-- [x] OpenClaw plugin (`fmem-auto` v1.0.0)
 - [x] Security hardening (score: 8/10)
 - [x] Documentation (INSTALLATION.md, API.md, ARCHITECTURE.md)
 
-### Phase 3: MCP Wrapper (Planned)
-- [ ] MCP server implementation
-- [ ] Multi-client support (OpenClaw, Claude Desktop, etc.)
-- [ ] Standardized tool registration
+### Phase 3: Production Hardening ✅ (Complete)
+- [x] Incremental indexing via cron
+- [x] Heading-aware chunking
+- [x] Broad scope indexing (memory/, notes/, projects/, trips/)
+- [x] N+1 query fix
+- [x] 17 tests covering core functionality
 
-### Phase 4: Advanced Features (Planned)
+### Phase 4: OpenClaw Plugin ✅ (Complete)
+- [x] `fmem-auto` plugin for automatic memory injection (v1.0.0)
+- [x] `before_prompt_build` hook with trigger-based recall
+- [x] CLI enhancements (`--format json`, `--min-score`, `--max-content`, `--content-mode`)
+
+### Phase 5: Advanced Features (Planned)
 - [ ] Async support for non-blocking retrieval
 - [ ] Incremental re-indexing (file watching)
 - [ ] Hierarchical chunk indexing (heading levels)
@@ -681,6 +709,14 @@ projects/fmem/
 ---
 
 ## Changelog
+
+### v3.3.1 (2026-04-24) - Message Extraction & Doc Fixes
+- ✅ **Fixed:** User message extraction — now uses `event.prompt` (clean message) instead of parsing envelope metadata from `event.messages`
+- ✅ **Fixed:** Plugin always handles failures gracefully — `gracefulDegradation` config option removed (behavior is always-on)
+- ✅ **Fixed:** Doc discrepancies between code and documentation
+- 📚 **Docs:** Added message extraction strategy to plugin description
+- 📚 **Docs:** Removed dead `gracefulDegradation` config from docs
+- 📚 **Docs:** Added missing implementation details (DoS protection, content preview, session-scoped cache) to plugins README
 
 ### v3.3.0 (2026-04-22) - OpenClaw Plugin
 - ✅ **New:** `fmem-auto` plugin for OpenClaw (v1.0.0)

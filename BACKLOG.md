@@ -7,9 +7,11 @@
 
 ## 🔴 High Priority
 
-### 1. OpenClaw Plugin: Trigger-Based Auto-Injection
+### 1. ~~OpenClaw Plugin: Trigger-Based Auto-Injection~~ ✅ Completed (2026-04-22)
 
 **Goal:** Build fmem into an OpenClaw plugin that injects relevant memory context before the agent sees the prompt — but only when triggers are detected in the incoming message.
+
+**Status:** ✅ Shipped as `openclaw-fmem-auto` v1.0.0. See [ROADMAP.md](docs/ROADMAP.md) Phase 4.
 
 **Why:** Current `should_search()` trigger detection works but requires me (the agent) to explicitly call `memory_search`. A plugin using `before_prompt_build` hook would automate this with zero API calls (FAISS search on pre-computed local vectors).
 

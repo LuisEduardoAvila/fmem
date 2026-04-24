@@ -1,5 +1,7 @@
 # Design: Multi-Language Trigger Detection
 
+> ⚠️ **STATUS: NOT IMPLEMENTED** — This is a design proposal, not current functionality. The current plugin (`openclaw-fmem-auto`) uses English-only regex patterns in `triggers.ts`. See `plugins/openclaw-fmem-auto/src/triggers.ts` for the actual implementation.
+
 ## Overview
 
 Hybrid two-stage trigger system: regex patterns (fast, language-specific) → entity extraction (slower, language-agnostic). This architecture prioritizes the common case (regex match) while providing intelligent fallback for implicit triggers.

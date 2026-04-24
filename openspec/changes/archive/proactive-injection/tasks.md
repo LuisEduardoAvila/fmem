@@ -1,5 +1,7 @@
 # Tasks: Proactive Context Injection
 
+> ⚠️ **STATUS: NOT IMPLEMENTED** — These tasks describe planned work for proactive context injection. The current plugin (`openclaw-fmem-auto`) uses `before_prompt_build` hook with `shouldSearch()` trigger detection instead.
+
 ## Phase 1: Proactive Entry Point
 
 ### 1.1 Add State Flag

@@ -71,7 +71,7 @@ The fmem codebase is largely well-implemented with **strong alignment** between 
 | **Graph-based relationships** | ❌ Not implemented | Phase 4 planned | No graph structure in code |
 | **Automatic summarization with caching** | ❌ Not implemented | Phase 4 planned | `summary` field in ChunkMetadata exists but never populated |
 | **MCP server implementation** | ❌ Not started | Phase 3 planned | Only mcp-wrapper directory with RATIONALE.md |
-| **Plugin architecture** | ❌ Not implemented | Phase 4 planned | No plugin system |
+| **Plugin architecture** | ✅ Implemented (Phase 4) | ~~Phase 4 planned~~ | OpenClaw plugin `openclaw-fmem-auto` v1.0.0 shipped 2026-04-22 |
 
 ### Minor Issues Found:
 

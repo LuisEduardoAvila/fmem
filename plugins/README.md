@@ -12,7 +12,9 @@ Automatically injects relevant memories into your OpenClaw prompts — no manual
 
 **Hook:** `before_prompt_build`
 
-The plugin intercepts each prompt before it's sent to the model and queries fmem for contextually relevant memories. Matching results are silently injected into the prompt context, giving the model access to your stored knowledge without you having to ask for it.
+The plugin hooks into OpenClaw's `before_prompt_build` lifecycle event. It uses `event.prompt` (the clean user message, pre-extracted by OpenClaw) as the primary input, falling back to parsing `event.messages` only as a secondary path. This avoids parsing envelope metadata that some providers attach.
+
+Matching results are silently injected into the prompt context before the LLM processes your message, giving the model access to your stored knowledge without you having to ask for it.
 
 #### Triggers
 
@@ -20,10 +22,10 @@ Memories are recalled based on four trigger types:
 
 | Trigger | Description |
 |---------|-------------|
-| **Explicit** | Direct mention of a memory topic in the prompt |
-| **Recency** | Recently stored memories surface automatically |
-| **Location** | Memories tagged with relevant locations or contexts |
-| **Context patterns** | Semantic similarity between the prompt and stored memories |
+| **Explicit** | User directly asks for memory (e.g., "look up", "recall", "remember", "show me") |
+| **Recency** | User references time periods (e.g., "last week", "recently", "yesterday") |
+| **Location** | User mentions a directory, path, or location category (e.g., "in docs", "under projects/") |
+| **Context patterns** | User references personal context patterns (e.g., "my preferences", "my goals", workspace terms) |
 
 #### Configuration
 
@@ -34,8 +36,7 @@ plugins:
       enabled: true
       topK: 3          # Max memories to inject per prompt
       minScore: 0.25   # Minimum relevance score (0–1)
-      timeoutMs: 500   # Max time to wait for recall
-      gracefulDegradation: true  # Skip on error instead of failing
+      timeoutMs: 5000  # Max time to wait for recall
 ```
 
 | Option | Type | Default | Description |
@@ -43,22 +44,49 @@ plugins:
 | `enabled` | boolean | `true` | Enable or disable auto-recall |
 | `topK` | number | `3` | Maximum number of memories to inject |
 | `minScore` | number | `0.25` | Minimum relevance score for a memory to be included |
-| `timeoutMs` | number | `500` | Timeout for recall queries (ms) |
-| `gracefulDegradation` | boolean | `true` | If recall fails, continue without memories rather than erroring |
-
+| `timeoutMs` | number | `5000` | Timeout for recall queries (ms) |
 #### Deduplication & Rate Limiting
 
 To avoid noise and redundant lookups:
 
 - **Deduplication:** Recalled memories are cached per-session with a **5-minute TTL**. The same memory won't be injected twice within that window.
 - **Rate limiting:** Recall queries are limited to **1 per second** per session, preventing excessive lookups during rapid conversations.
+- **Message length limit:** Messages longer than **10,000 characters** are skipped (DoS protection).
+- **Content preview:** Injected memories show up to **150 characters** of content (adaptively up to 400 for single results).
 
 #### Installation
 
-1. Copy the `openclaw-fmem-auto` plugin directory to your OpenClaw plugins path
-2. Run `npm install` inside the plugin directory
-3. Add the configuration block above to your OpenClaw config
-4. Restart OpenClaw (or reload plugins)
+1. Install the plugin: `openclaw plugin install fmem-auto`
+2. Or manually: copy the `openclaw-fmem-auto` plugin directory to your OpenClaw workspace `plugins/` directory
+3. OpenClaw loads TypeScript plugins directly — no build step required
+4. Add the configuration block above to your OpenClaw config (`~/.openclaw/config.yaml`)
+5. Restart OpenClaw (or reload plugins)
+
+#### Custom Triggers
+
+You can override any trigger category with your own patterns via config:
+
+```yaml
+plugins:
+  entries:
+    fmem-auto:
+      triggers:
+        explicit:
+          - "look up"
+          - "find"
+          - "recall"
+        recency:
+          - "last week"
+          - "yesterday"
+        location:
+          - "in docs"
+          - "from projects"
+        context:
+          - "my preferences"
+          - "my goals"
+```
+
+Any trigger category not specified in config falls back to the built-in defaults.
 
 #### Usage
 

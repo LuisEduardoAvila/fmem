@@ -1,5 +1,7 @@
 # Specification: Multi-Language Trigger Detection
 
+> ⚠️ **STATUS: NOT IMPLEMENTED** — This is a specification, not current functionality. The current plugin (`openclaw-fmem-auto`) uses English-only regex patterns in `triggers.ts`. Multi-language support and spaCy-based entity extraction are planned features.
+
 ## Overview
 
 This specification defines requirements for two complementary trigger detection mechanisms for fmem auto-recall:
